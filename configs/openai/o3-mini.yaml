@@ -1,0 +1,6 @@
+model: o3-mini--high
+api: openai
+max_tokens: null
+read_cost: 1.1
+write_cost: 4.4
+human_readable_id: o3-mini (high)
