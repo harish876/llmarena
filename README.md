@@ -112,7 +112,7 @@ uv run python scripts/run_multiple.py --apis openai google anthropic together --
 ```
 This will run models from the same API sequentially and from different APIs concurrently.
 **Options:**
-- `--simul`: Run all models in parallel, even if they use the same API.
+- `simul`: Run all models in parallel, even if they use the same API.
 - `models`: Provide space-separated regex patterns to filter models. A model is only run if it matches any of the regexes.
 - `skip_existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem (default: 4).
