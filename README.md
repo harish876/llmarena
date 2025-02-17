@@ -149,7 +149,6 @@ Once processed, you should copy the files in `web_outputs/path/to/competition` t
   author = {Mislav Balunović, Jasper Dekoninck, Ivo Petrov, Nikola Jovanović, Martin Vechev},
 	copyright = {MIT},
 	url = {https://matharena.ai/},
-	urldate = {2025-02-15},
 	publisher = {SRI Lab, ETH Zurich},
 	month = feb,
 	year = {2025},
