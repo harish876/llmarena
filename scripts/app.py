@@ -1,9 +1,11 @@
 import json
 import os
+import sympy
 import argparse 
 from fasthtml.common import *
 from loguru import logger
 from matharena.configs import extract_existing_configs
+from matharena.parser import WarningType
 
 """
     A dashboard app that shows all about a run 
@@ -161,11 +163,12 @@ app, rt = fast_app(live=False, hdrs=[
 
 title = f"Run Analysis: {args.comp}"
 
+
 def get_problem_stats(results, model, problem):
     if type(problem) == str:
         problem = int(problem)
-    res = results[model][problem]
-    corrects = [ans == res['gold_answer'] for ans in res["answers"]]
+    res = results[model][problem] 
+    corrects = res["correct"]
     warnings = res.get("warnings", [False] * len(corrects))
     if len(corrects) == 0:
         return {
@@ -182,16 +185,25 @@ def get_problem_stats(results, model, problem):
         "warnings": warnings
     }
 
+def get_tick(is_correct, warning):
+    if is_correct:
+        tick = '✅'
+    elif not is_correct and warning == 0:
+        tick = '❌'
+    elif warning >= 3:
+        tick = '💀'
+    elif warning >= 2:
+        tick = '⚠️'
+    else:
+        # small warning
+        tick = '❕'
+    return tick
+
 def get_problem_ticks(results, model, problem):
     stat = get_problem_stats(results, model, problem)
     ticks = ""
     for i, correct in enumerate(stat['corrects']):
-        if correct and not stat['warnings'][i]:
-            ticks += '✅'
-        elif not correct and not stat['warnings'][i]:
-            ticks += '❌'
-        else:
-            ticks += '⚠️'
+        ticks += get_tick(correct, stat['warnings'][i])
     return ticks
 
 def get_model_stats(results, model):
@@ -213,12 +225,7 @@ def model_stats_to_html(stats):
         p += f"{stat['accuracy']*100:.2f}% " 
         p += f"({stat['nb_instances']} instances: "
         for i, correct in enumerate(stat['corrects']):
-            if correct and not stat['warnings'][i]:
-                p += '✅'
-            elif not correct and not stat['warnings'][i]:
-                p += '❌'
-            else:
-                p += '⚠️'
+            p += get_tick(correct, stat["warnings"][i])
         p += ")"
         logger.info(p)
         problem_stats_html.append(P(p, cls="problem-stats"))
@@ -402,21 +409,19 @@ def get(model: str, problem_name: str):
         #     curr_html.append(P(f"Parsecheck Details:", cls="strong"))
         #     curr_html.append(Div(parsecheck_details, cls=f"box details-box {correct_cls}"))
 
-        answer, is_correct = res["answers"][i], res["answers"][i] == res["gold_answer"]
+        answer, is_correct = res["answers"][i], res["correct"][i]
         warning = False
         if "warnings" in res:
             warning = res["warnings"][i]
         if answer is None:
             answer = "No answer found in \\boxed{}. Model was instructed to output answer in \\boxed{}."
-        verdict = "✅" if is_correct else "❌"
-        if warning and not is_correct:
-            verdict = "⚠️"
+        verdict = get_tick(is_correct, warning)
         logger.info(verdict)
         correct_cls = "correct" if is_correct else "incorrect"
 
         extras = {'id': f"{model}>>{problem_name}>>{i}"}
         curr_html.append(Details(Summary("Model Interaction:"), cls="response-box-details strong", **extras))
-        curr_html.append(P(f"Parsed Answer ({verdict}):", cls="strong"))
+        curr_html.append(P(f"Parsed Answer ({verdict}, {warning}):", cls="strong"))
         curr_html.append(Div(answer, cls=f"box answer-box {correct_cls}"))
 
         instances_html.append(Div(*curr_html))

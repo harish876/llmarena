@@ -18,7 +18,7 @@ def encode_image(image_path):
 
 class APIQuery:
     def __init__(self, model, 
-                 timeout=500, 
+                 timeout=6000, 
                  temperature=0, 
                  max_tokens=None,
                  api='openai', 

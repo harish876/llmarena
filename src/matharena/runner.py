@@ -2,10 +2,13 @@ import csv
 import os
 import json
 import re
+import sympy
 from matharena.api import APIQuery
 from matharena.cot_solver import CoTSolver
-from matharena.parser import extract_answer
+from matharena.parser import extract_answer, parse_answer, check_answers, WarningType
+from matharena.possible_issues import check_number_proximity_any_order, check_all_numbers, check_output_length
 from loguru import logger
+from collections import defaultdict
 import yaml
 
 def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs"):
@@ -40,16 +43,6 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
         with open(problem_path, "r") as f:
             problem["problem_statement"] = f.read()
         problem["image_path"] = None # image_path if os.path.exists(image_path) else None
-
-    api = APIQuery(
-        model=model, 
-        api=api,
-        **kwargs
-    )
-
-    cot_solver = CoTSolver(
-        querier=api
-    )
 
     output_dir = os.path.join(f"{output_folder}/{competition}/", config_path.replace(".yaml", ""))
     os.makedirs(output_dir, exist_ok=True)
@@ -97,6 +90,18 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 
     logger.info("Collected all queries, now running")
 
+    if len(batch_prompts) == 0:
+        return
+    api = APIQuery(
+        model=model, 
+        api=api,
+        **kwargs
+    )
+
+    cot_solver = CoTSolver(
+        querier=api
+    )
+
     for idx, messages, detailed_cost in cot_solver.solve(batch_prompts):
         problem_idx = batch_idx_to_problem_idx[idx]
         problem = problems[problem_idx]
@@ -109,46 +114,47 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
                                       all_messages_per_problem[problem_idx], 
                                       detailed_costs_per_problem[problem_idx], 
                                       problem_idx, competition_config["strict_parsing"])
-            
-def check_all_numbers(text, gold_answer):
-    if extract_answer(text, strict_parsing=True) is not None:
-        return False
-    numbers = re.findall(r'\d+', text)
-    return any(int(num) == gold_answer for num in numbers)
-
-def check_output_length(length):
-    while length % 10 == 0 and length > 1:
-        length /= 10
-    while length % 2 == 0 and length > 1:
-        length /= 2
-    return length == 1
 
 def calculate_problem_results(problem, output_dir, messages_problem, 
                               costs_problem, problem_idx, strict_parsing):
     problem_id = problem["id"]
+
     problem_statement = problem["problem_statement"]
-    gold_answer = int(problem["answer"])
+    gold_answer, _ = parse_answer(str(problem["answer"]))
     output_file = os.path.join(output_dir, f"{problem_id}.json")
     n = len(messages_problem)
     answers = []
     warnings = []
+    corrects = []
+    try:
+        string_answer = str(model_answer)
+    except:
+        string_answer = "None"
+        warning = WarningType.MAJOR
     for j in range(n):
         model_answer = messages_problem[j][-1]["content"]
-        model_answer = extract_answer(model_answer, strict_parsing)
-        warning = False
-        if gold_answer != model_answer and check_all_numbers(messages_problem[j][-1]["content"], gold_answer):
-            logger.warning(f"Model answer: {model_answer} is not equal to gold answer: {gold_answer} even though model output contains the gold answer. Problem: {problem_id}, idx: {j}")
-            warning = True
-        if gold_answer != model_answer and check_output_length(costs_problem[j]["output_tokens"]):
+        model_answer, warning = extract_answer(model_answer, strict_parsing)
+        is_correct = check_answers(model_answer, gold_answer)
+        if not is_correct and check_output_length(costs_problem[j]["output_tokens"]):
             logger.warning(f"Model output length is of the form 10**k * 2**n. This might indicate it hit the token limit. Problem: {problem_id}, idx: {j}")
-            warning = True
-        if len(messages_problem[j][-1]["content"]) == 0:
+            warning = WarningType.MINOR # model just didnt have time, any error could have been caused by this
+        elif not is_correct and check_all_numbers(messages_problem[j][-1]["content"], str(problem["answer"])):
+            logger.warning(f"Model answer: {model_answer} is not equal to gold answer: {gold_answer} even though model output contains the gold answer. Problem: {problem_id}, idx: {j}")
+            warning = max(warning, WarningType.POSSIBLE)
+        elif not is_correct and check_number_proximity_any_order(str(gold_answer), string_answer):
+            logger.warning(f"Numbers appearing in gold answer appear close together in model answer, but answer was incorrect. Problem: {problem_id}, idx: {j}")
+            warning = max(warning, WarningType.POSSIBLE)
+        elif len(messages_problem[j][-1]["content"]) == 0:
             logger.warning(f"Empty message in problem: {problem_id}, idx: {j}")
-            warning = True
+            warning = WarningType.MAJOR
         answers.append(model_answer)
-        warnings.append(warning)
-            
-    logger.info(f"Finished problem: {problem_id}, answers: {answers}, gold answer: {gold_answer}")
+        warnings.append(warning.value)
+        corrects.append(is_correct)
+
+    try:
+        logger.info(f"Finished problem: {problem_id}, answers: {answers}, gold answer: {str(problem['answer'])}, #Correct: {sum(corrects)}")
+    except:
+        pass
     pass_at_1 = sum(x == gold_answer for x in answers)/n
     cost = {
                 "cost": sum([d["cost"] for d in costs_problem]),
@@ -160,13 +166,20 @@ def calculate_problem_results(problem, output_dir, messages_problem,
         json.dump({
                     "idx": problem_idx,
                     "problem": problem_statement,
-                    "gold_answer": gold_answer,
+                    "gold_answer": str(problem["answer"]),
                     "messages": messages_problem, 
-                    "answers": answers,
-                    "model_answer": model_answer,
+                    "answers": [convert_answer(answer) for answer in answers],
+                    "correct": corrects,
                     "pass_at_1": pass_at_1,
                     "cost": cost,
                     "detailed_costs": costs_problem,
                     "warnings": warnings
                 }, f)
 
+def convert_answer(answer):
+    if type(answer) == sympy.Integer:
+        return int(answer)
+    try:
+        return str(answer)
+    except:
+        return "None"

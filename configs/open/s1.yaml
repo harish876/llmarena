@@ -1,0 +1,8 @@
+model: simplescaling/s1.1-32B
+api: vllm
+max_tokens: 32000
+temperature: 0.6
+concurrent_requests: 10
+read_cost: 0
+write_cost: 0
+human_readable_id: s1.1-32B

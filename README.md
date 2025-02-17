@@ -112,7 +112,7 @@ uv run python scripts/run_multiple.py --apis openai google anthropic together --
 ```
 This will run models from the same API sequentially and from different APIs concurrently.
 **Options:**
-- `simul`: Run all models in parallel, even if they use the same API.
+- `--simul`: Run all models in parallel, even if they use the same API.
 - `models`: Provide space-separated regex patterns to filter models. A model is only run if it matches any of the regexes.
 - `skip_existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem (default: 4).
@@ -126,8 +126,32 @@ Launch a local web server to inspect the results:
 uv run python scripts/app.py --comp path/to/competition
 ```
 Access the app at [http://localhost:5001/](http://localhost:5001/). Warning signs for solutions indicate a potential problem with the model run and should be manually verified. Any warning is caused by one of the following problems:
-* Empty answer (API error)
-* The answer has $10^k \cdot 2^n$ output tokens (model likely reached maximum tokens).
-* The correct answer is present in the model answer, but it was not extracted.
 
-If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip_existing`.
+* 💀: parser threw an error or encountered something unexpected.
+* ⚠️: The correct answer might be present in the model answer, but it was not extracted.
+* ❕: Model likely hit max token limit.
+
+If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip_existing`. If the parser requires a manual overwrite, you can edit `src/matharena/parse_manual.py` and add a key-value pair mapping the model solution to a parseable solution.
+
+## Post-Processing Results
+To post-process results to add them to our website, you should run
+```bash
+bash scripts/website/postprocess.sh path/to/competition
+```
+Once processed, you should copy the files in `web_outputs/path/to/competition` to our website repository.
+
+
+## Citation
+
+```
+@misc{balunovic_srimatharena_2025,
+	title = {MathArena: Evaluating LLMs on Uncontaminated Math Competitions},
+  author = {Mislav Balunović, Jasper Dekoninck, Ivo Petrov, Nikola Jovanović, Martin Vechev},
+	copyright = {MIT},
+	url = {https://matharena.ai/},
+	urldate = {2025-02-15},
+	publisher = {SRI Lab, ETH Zurich},
+	month = feb,
+	year = {2025},
+}
+```
