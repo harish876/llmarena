@@ -13,6 +13,7 @@ MathArena is a platform for the evaluation of LLMs on the latest math competitio
   - [Verifying Problem Statements](#verifying-problem-statements)
   - [Running Models on Competitions](#running-models-on-competitions)
 - [Viewing Results](#viewing-results)
+- [Evaluation logs](#evaluation-logs)
 
 ## Installation
 
@@ -132,6 +133,10 @@ Access the app at [http://localhost:5001/](http://localhost:5001/). Warning sign
 * ❕: Model likely hit max token limit.
 
 If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip_existing`. If the parser requires a manual overwrite, you can edit `src/matharena/parse_manual.py` and add a key-value pair mapping the model solution to a parseable solution.
+
+## Evaluation Logs
+
+You can find logs from our evaluation containing full reasoning traces (if availabel) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
 
 ## Post-Processing Results
 To post-process results to add them to our website, you should run
