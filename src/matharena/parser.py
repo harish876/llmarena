@@ -3,7 +3,7 @@ from typing import Optional
 from loguru import logger
 import re
 from fractions import Fraction
-from matharena.utils import get_depth, latex2sympy_fixed
+from matharena.utils import latex2sympy_fixed
 from sympy import N, Integer
 import sympy
 from typing import Any
@@ -23,37 +23,46 @@ class WarningType(Enum):
         return self.value < other
 
 
-def find_last_boxed_content(text: str) -> Optional[str]:
+def find_last_boxed_content(text: str, list_answer: bool = False) -> Optional[str]:
     pattern = r"(boxed|fbox)\{((?:[^{}]|\{(?2)\})*)\}"
     matches = list(regex.finditer(pattern, text))
     if not matches:
-        return None
+        return None, WarningType.NONE
+    
+    if len(matches) > 1 and list_answer:
+        # find all boxed content on the same line (no \n in between) as the last boxed
+        split_text = text.split("\n")
+        for i in range(len(split_text)-1, -1, -1):
+            matches_line = list(regex.finditer(pattern, split_text[i]))
+            if len(matches_line) > 0:
+                returned_boxed = ",".join([match.group(2) for match in matches_line])
+                return returned_boxed, WarningType.POSSIBLE
 
     last_match = matches[-1]
-    return last_match.group(2)
+    return last_match.group(2), WarningType.NONE
 
 
-def extract_boxed_answer(text: str) -> Optional[str]:
-    answer = find_last_boxed_content(text)
+def extract_boxed_answer(text: str, list_answer: bool = False) -> Optional[str]:
+    answer, warning = find_last_boxed_content(text, list_answer)
     if answer is not None and "=" in answer:
         answer = answer.split("=")[-1]
     if answer is not None:
-        return answer
+        return answer, warning
     else:
-        return None
+        return None, warning
 
 
-def extract_boxed_answer_parse(text: str, parse: bool = True) -> Optional[int]:
-    answer = extract_boxed_answer(text)
+def extract_boxed_answer_parse(text: str, parse: bool = True, list_answer: bool = False) -> Optional[int]:
+    answer, warning = extract_boxed_answer(text, list_answer)
     if answer is not None:
         try:
-            return sympy.Integer(int(answer)), WarningType.NONE
+            return sympy.Integer(int(answer)), warning
         except:
             # logger.info(f"Could not parse answer {answer} as integer")
             if parse:
                 parsed_answer, warning = parse_answer(answer)
                 return parsed_answer, warning
-            return answer, WarningType.NONE
+            return answer, warning
     return None, WarningType.MAJOR
 
 def extract_last_integer(text: str) -> Optional[int]:
@@ -67,9 +76,9 @@ def extract_last_integer(text: str) -> Optional[int]:
         return None, WarningType.MAJOR
 
 
-def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True):
+def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True, list_answer: bool = False):
     text, warning = replace_unicode(text)
-    answer, warning_new = extract_boxed_answer_parse(text, parse)
+    answer, warning_new = extract_boxed_answer_parse(text, parse, list_answer)
     warning = max(warning, warning_new)
     if answer is not None or strict_parsing:
         return answer, warning
@@ -95,33 +104,6 @@ def parse_answer(s: str, primitive_type: type = None):
     if isinstance(output, list) or isinstance(output, tuple):
         output = AnswerList(output)
     return output, warning
-
-def match_list_depth(parsed_answer, depth: int = None, primitive_type: type = None):
-    depth_parsed = get_depth(parsed_answer)
-    if depth_parsed is not None and depth is not None and depth_parsed == depth - 1:
-        return [parsed_answer]
-    if depth is None:
-        return parsed_answer
-    if depth > 0 and not isinstance(parsed_answer, list):
-        return match_list_depth([parsed_answer], depth, primitive_type)
-    if depth == 0 and isinstance(parsed_answer, list):
-        if isinstance(parsed_answer[0], list):
-            assert len(parsed_answer) == 1
-            return match_list_depth(parsed_answer[0], depth, primitive_type)
-        elif len(parsed_answer) == 1:
-            return parsed_answer[0]
-        if primitive_type == str or primitive_type is None:
-            return "".join([str(item) for item in parsed_answer])
-        raise ValueError(f"Expected a single element, but got '{parsed_answer}'. Failed to match correct depth.")
-    elif depth == 0:
-        return parsed_answer
-    try:
-        output_list = [
-            match_list_depth(item, depth - 1, primitive_type) for item in parsed_answer
-        ]
-    except Exception as e:
-        raise ValueError(f"Failed to match correct depth {depth} for '{parsed_answer}'")
-    return output_list
 
 def normalize_string(s):
     s = s.replace(r"\left", "").replace(r"\right", "")

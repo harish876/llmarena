@@ -133,7 +133,8 @@ def calculate_problem_results(problem, output_dir, messages_problem,
         warning = WarningType.MAJOR
     for j in range(n):
         model_answer = messages_problem[j][-1]["content"]
-        model_answer, warning = extract_answer(model_answer, strict_parsing)
+        list_answer = "," in str(problem["answer"])
+        model_answer, warning = extract_answer(model_answer, strict_parsing, True, list_answer)
         is_correct = check_answers(model_answer, gold_answer)
         if not is_correct and check_output_length(costs_problem[j]["output_tokens"]):
             logger.warning(f"Model output length is of the form 10**k * 2**n. This might indicate it hit the token limit. Problem: {problem_id}, idx: {j}")

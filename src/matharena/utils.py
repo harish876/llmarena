@@ -27,15 +27,3 @@ def convert_to_int(obj):
     if isinstance(obj, list):
         return [convert_to_int(item) for item in obj]
     raise ValueError(f"Cannot convert {type(obj)} to int")
-
-def get_depth(solution):
-    if isinstance(solution, (list, tuple)):
-        depths = [
-            get_depth(sol) for sol in solution
-        ]
-        if any([d is None for d in depths]):
-            return None
-        if len(set(depths)) > 1:
-            return None
-        return depths[0] + 1
-    return 0
