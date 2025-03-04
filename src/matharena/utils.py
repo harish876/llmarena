@@ -1,7 +1,6 @@
 import re
-from sympy.parsing.latex import parse_latex
 import sympy
-import sys
+from sympy.parsing.latex import parse_latex
 
 def latex2sympy_fixed(latex: str):
     # if _integer is present, replace it with _{integer} for any integer
