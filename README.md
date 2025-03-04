@@ -17,7 +17,7 @@ MathArena is a platform for the evaluation of LLMs on the latest math competitio
 
 ## Installation
 
-MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies.
+MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies. If you want to run local models, uncomment the vllm installation in `pyproject.toml`.
 
 ### Install UV
 
@@ -29,7 +29,6 @@ MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies.
   ```powershell
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
-
 ---
 
 ### Alternative installation
