@@ -38,7 +38,7 @@ As an alternative to UV, you can also create a conda environment and install the
 ```bash
 conda create -n matharena python=3.12
 conda activate matharena
-pip install -e .
+python -m pip install -e .
 ```
 If you choose this option, disregard `uv run` in all instructions and use python directly instead.
 
