@@ -32,6 +32,16 @@ MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies.
 
 ---
 
+### Alternative installation
+
+As an alternative to UV, you can also create a conda environment and install the package as follows:
+```bash
+conda create -n matharena python=3.12
+conda activate matharena
+pip install -e .
+```
+If you choose this option, disregard `uv run` in all instructions and use python directly instead.
+
 ## Evaluating a New Model
 
 ### Model Configuration
@@ -39,14 +49,14 @@ MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies.
 Create a configuration file in the `configs/` folder. Each config must include:
 - **Required:**
   - `model`: Model name. Reasoning effort of OpenAI models can be set by appending `--[low/medium/high]` to the model name, e.g., `o3-mini--high`.
-  - `api`: API provider (supported options with their corresponding API keys):
-    - **openai:** `OPENAI_API_KEY`
-    - **anthropic:** `ANTHROPIC_API_KEY`
-    - **together:** `TOGETHER_API_KEY`
-    - **google:** `GOOGLE_API_KEY`
-    - **deepseek:** `DEEPSEEK_API_KEY`
-    - **openrouter:** `OPENROUTER_API_KEY`
-    - **vllm:** (runs locally; no API key required)
+  - `api`: API provider. The API key should be defined as environment variable when using the specified API. The supported options with their corresponding API keys are:
+    - **openai**: `OPENAI_API_KEY`
+    - **anthropic**: `ANTHROPIC_API_KEY`
+    - **together**: `TOGETHER_API_KEY`
+    - **google**: `GOOGLE_API_KEY`
+    - **deepseek**: `DEEPSEEK_API_KEY`
+    - **openrouter**: `OPENROUTER_API_KEY`
+    - **vllm**: (runs locally; no API key required)
   - `human_readable_id`: A unique, descriptive identifier.
 - **Optional Parameters:**
   - API settings like `temperature`, `top_p`, and `top_k` (default: `temperature` is from competition config, see [Adding a Competition](#adding-a-competition)).
@@ -136,7 +146,7 @@ If issues are found, delete the corresponding output file or fix the parser and 
 
 ## Evaluation Logs
 
-You can find logs from our evaluation containing full reasoning traces (if availabel) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
+You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
 
 ## Post-Processing Results
 To post-process results to add them to our website, you should run
