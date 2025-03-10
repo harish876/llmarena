@@ -147,14 +147,6 @@ If issues are found, delete the corresponding output file or fix the parser and 
 
 You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
 
-## Post-Processing Results
-To post-process results to add them to our website, you should run
-```bash
-bash scripts/website/postprocess.sh path/to/competition
-```
-Once processed, you should copy the files in `web_outputs/path/to/competition` to our website repository.
-
-
 ## Citation
 
 ```
