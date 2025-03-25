@@ -4,3 +4,4 @@ max_tokens: null
 read_cost: 15
 write_cost: 60
 human_readable_id: o1 (medium)
+batch_processing: false

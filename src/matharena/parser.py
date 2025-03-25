@@ -23,6 +23,21 @@ class WarningType(Enum):
         return self.value < other
 
 
+def parse_grading(text: str):
+    pattern = re.compile(r"""Category:\s*(.*?)(?:\s|\n)*Points\s+awarded:\s*(.*?)(?:\s|\n)*Description:\s*(.*?)(?:\s|\n)*(?=Category:|$)""", re.DOTALL | re.VERBOSE)    
+    matches = pattern.findall(text)
+    
+    result = {"points": sum(int(points) for _, points, _ in matches), "details": []}
+    
+    for title, points, desc in matches:
+        result["details"].append({
+            "title": title,
+            "points": int(points),
+            "desc": desc
+        })
+    
+    return result
+
 def find_last_boxed_content(text: str, list_answer: bool = False) -> Optional[str]:
     pattern = r"(boxed|fbox)\{((?:[^{}]|\{(?2)\})*)\}"
     matches = list(regex.finditer(pattern, text))

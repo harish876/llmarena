@@ -14,7 +14,7 @@ def matches_models(model_name, models):
     return False
 
 def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False, models=None, 
-                output_folder="outputs"):
+                output_folder="outputs", include_old=False):
     """
     Loads configuration files recursively from `config_folder` and runs the appropriate
     command for each valid config file in parallel.
@@ -32,6 +32,7 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
         simul (bool): If True, run each config separately; if False, group configs by api.
         models (list): A list of model names to filter configs by. Can be a regex. If None, all configs are used.
         output_folder (str): The folder where model answers are stored.
+        include_old (bool): If True, include old configs in the config_folder. Old configs are read from configs/exclude.txt
     """
     # Ensure the log directory exists.
     log_dir = Path("logs")
@@ -39,6 +40,18 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
 
     # Convert the config_folder to a Path object.
     configs = load_configs(config_folder, remove_extension=False)
+
+    if not include_old:
+        exclude_file = Path("configs/exclude.txt")
+        with exclude_file.open("r") as f:
+            exclude_regexes = f.read().splitlines()
+        
+        for config_path in list(configs.keys()):
+            for regex in exclude_regexes:
+                if re.match(regex, config_path):
+                    logger.info(f"Excluding {config_path} due to {regex}")
+                    del configs[config_path]
+                    break
 
     valid_configs = []  # Each entry is a tuple: (config_path, api, model)
     for file_path in configs:
@@ -92,6 +105,7 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=4)
     parser.add_argument("--output-folder", type=str, default="outputs")
     parser.add_argument("--config-folder", type=str, default="configs")
+    parser.add_argument("--include-old", action="store_true")
     args = parser.parse_args()
     run_configs(args.config_folder, args.apis, args.comp,args.skip_existing, args.n, 
                 args.simul, args.models, args.output_folder)

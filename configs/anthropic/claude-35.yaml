@@ -4,4 +4,4 @@ max_tokens: 8000
 concurrent_requests: 20
 read_cost: 3
 write_cost: 15
-human_readable_id: claude-3.5-sonnet
+human_readable_id: Claude-3.5-Sonnet

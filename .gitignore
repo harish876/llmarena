@@ -18,3 +18,8 @@ uv.lock
 website/
 outputs/
 scripts/website/
+autogradings/
+data/ids.txt
+grading/
+latex/
+!usamo_report.pdf

@@ -1,6 +1,7 @@
 import argparse
 import os
 from matharena.runner import run
+from matharena.grader import run_grader
 import yaml
 from loguru import logger
 
@@ -10,13 +11,16 @@ parser.add_argument("--configs", type=str, nargs="+", required=True)
 parser.add_argument("--skip_existing", action="store_true")
 parser.add_argument("--comp", type=str, required=True)
 parser.add_argument("--output-folder", type=str, default="outputs")
+parser.add_argument("--grading-folder", type=str, default="autogradings")
 parser.add_argument("--configs-folder", type=str, default="configs")
+parser.add_argument("--graded_config", type=str, nargs="+", default=None)
 args = parser.parse_args()
 
 for config_path in args.configs:
     with open(f"{args.configs_folder}/{config_path}", 'r') as f:
         model_config = yaml.safe_load(f)
+    
     model_config["n"] = model_config.get("n", args.n)
-    logger.info("Running config: ", config_path)
+    logger.info(f"Running config: {config_path}")
     run(model_config, config_path, args.comp, skip_existing=args.skip_existing, 
         output_folder=args.output_folder)

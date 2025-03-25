@@ -2,6 +2,7 @@ import re
 import sympy
 from sympy.parsing.latex import parse_latex
 
+
 def latex2sympy_fixed(latex: str):
     # if _integer is present, replace it with _{integer} for any integer
     latex = re.sub(r"_([0-9]+)", r"_{\1}", latex)

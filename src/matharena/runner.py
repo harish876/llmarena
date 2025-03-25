@@ -1,14 +1,19 @@
 import csv
 import os
 import json
-import re
 import sympy
+from loguru import logger
+from datetime import datetime
+import yaml
+import uuid
+
 from matharena.api import APIQuery
 from matharena.cot_solver import CoTSolver
 from matharena.parser import extract_answer, parse_answer, check_answers, WarningType
 from matharena.possible_issues import check_number_proximity_any_order, check_all_numbers, check_output_length
+
 from loguru import logger
-from collections import defaultdict
+from datetime import datetime
 import yaml
 
 def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs"):
@@ -19,6 +24,8 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
     with open(f"data/{competition}/config.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
 
+    date_comp = datetime.strptime(competition_config["date"], "%Y-%m-%d")
+
     max_tokens = model_config.get("max_tokens", competition_config["default_max_tokens"])
     temperature = model_config.get("temperature", competition_config["default_temperature"])
     kwargs = model_config.copy()
@@ -26,6 +33,11 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
     del kwargs["n"]
     del kwargs["api"]
     del kwargs["human_readable_id"]
+    if "date" in kwargs:
+        date_model = datetime.strptime(kwargs["date"], "%Y-%m-%d")
+        if date_model > date_comp:
+            logger.warning(f"Model date is after competition date. Model: {model}, Competition: {competition}")
+        del kwargs["date"]
     kwargs["max_tokens"] = max_tokens
     kwargs["temperature"] = temperature
 
@@ -33,10 +45,17 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 
     prompt_template = f"{competition_config['instruction']}\n\n" + "{problem_statement}"
 
-    answers_path = os.path.join("data", competition, "answers.csv")
-    with open(answers_path, "r") as f:
-        reader = csv.DictReader(f)
-        problems = list(reader)
+    final_answer_comp = competition_config.get("final_answer", True)
+
+    if final_answer_comp:
+        answers_path = os.path.join("data", competition, "answers.csv")
+        with open(answers_path, "r") as f:
+            reader = csv.DictReader(f)
+            problems = list(reader)
+    else:
+        grading_scheme_path = os.path.join("data", competition, "grading_scheme.json")
+        with open(grading_scheme_path, "r") as f:
+            problems = json.load(f)
     for problem in problems:
         problem_path = os.path.join("data", competition, "problems", problem["id"] + ".tex")
         image_path = os.path.join("data", competition, "images", "problem_" + problem["id"] + ".png")
@@ -79,7 +98,8 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
             logger.info(f"Skipping problem: {problem_id} ({len(messages)} times)")
             if len(messages) == n:
                 calculate_problem_results(problem, output_dir, messages,
-                                            detailed_costs, i, competition_config["strict_parsing"])
+                                            detailed_costs, i, competition_config["strict_parsing"], 
+                                            final_answer=final_answer_comp)
                 continue
 
         problem_statement = problem["problem_statement"]
@@ -113,14 +133,19 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
             calculate_problem_results(problem, output_dir, 
                                       all_messages_per_problem[problem_idx], 
                                       detailed_costs_per_problem[problem_idx], 
-                                      problem_idx, competition_config["strict_parsing"])
+                                      problem_idx, competition_config["strict_parsing"], 
+                                      final_answer=final_answer_comp)
 
 def calculate_problem_results(problem, output_dir, messages_problem, 
-                              costs_problem, problem_idx, strict_parsing):
+                              costs_problem, problem_idx, strict_parsing, 
+                              final_answer=True):
     problem_id = problem["id"]
 
     problem_statement = problem["problem_statement"]
-    gold_answer, _ = parse_answer(str(problem["answer"]))
+    if final_answer:
+        gold_answer, _ = parse_answer(str(problem["answer"]))
+    else:
+        gold_answer = None
     output_file = os.path.join(output_dir, f"{problem_id}.json")
     n = len(messages_problem)
     answers = []
@@ -132,55 +157,76 @@ def calculate_problem_results(problem, output_dir, messages_problem,
         string_answer = "None"
         warning = WarningType.MAJOR
     for j in range(n):
-        model_answer = messages_problem[j][-1]["content"]
-        list_answer = "," in str(problem["answer"])
-        model_answer, warning = extract_answer(model_answer, strict_parsing, True, list_answer)
-        is_correct = check_answers(model_answer, gold_answer)
-        if not is_correct and check_output_length(costs_problem[j]["output_tokens"]):
-            logger.warning(f"Model output length is of the form 10**k * 2**n. This might indicate it hit the token limit. Problem: {problem_id}, idx: {j}")
-            warning = WarningType.MINOR # model just didnt have time, any error could have been caused by this
-        elif not is_correct and check_all_numbers(messages_problem[j][-1]["content"], str(problem["answer"])):
-            logger.warning(f"Model answer: {model_answer} is not equal to gold answer: {gold_answer} even though model output contains the gold answer. Problem: {problem_id}, idx: {j}")
-            warning = max(warning, WarningType.POSSIBLE)
-        elif not is_correct and check_number_proximity_any_order(str(gold_answer), string_answer):
-            logger.warning(f"Numbers appearing in gold answer appear close together in model answer, but answer was incorrect. Problem: {problem_id}, idx: {j}")
-            warning = max(warning, WarningType.POSSIBLE)
-        elif len(messages_problem[j][-1]["content"]) == 0:
-            logger.warning(f"Empty message in problem: {problem_id}, idx: {j}")
-            warning = WarningType.MAJOR
-        answers.append(model_answer)
-        warnings.append(warning.value)
-        corrects.append(is_correct)
+        if final_answer:
+            model_answer = messages_problem[j][-1]["content"]
+            list_answer = "," in str(problem["answer"])
+            model_answer, warning = extract_answer(model_answer, strict_parsing, True, list_answer)
+            is_correct = check_answers(model_answer, gold_answer)
+            if not is_correct and check_output_length(costs_problem[j]["output_tokens"]):
+                logger.warning(f"Model output length {costs_problem[j]['output_tokens']} is of the form 10**k * 2**n. This might indicate it hit the token limit. Problem: {problem_id}, idx: {j}")
+                warning = WarningType.MINOR # model just didnt have time, any error could have been caused by this
+            elif not is_correct and check_all_numbers(messages_problem[j][-1]["content"], str(problem["answer"])):
+                logger.warning(f"Model answer: {model_answer} is not equal to gold answer: {gold_answer} even though model output contains the gold answer. Problem: {problem_id}, idx: {j}")
+                warning = max(warning, WarningType.POSSIBLE)
+            elif not is_correct and check_number_proximity_any_order(str(gold_answer), string_answer):
+                logger.warning(f"Numbers appearing in gold answer appear close together in model answer, but answer was incorrect. Problem: {problem_id}, idx: {j}")
+                warning = max(warning, WarningType.POSSIBLE)
+            elif len(messages_problem[j][-1]["content"]) == 0:
+                logger.warning(f"Empty message in problem: {problem_id}, idx: {j}")
+                warning = WarningType.MAJOR
+            answers.append(model_answer)
+            warnings.append(warning.value)
+            corrects.append(is_correct)
+        else:
+            answers.append(None)
+            warnings.append(0)
+            corrects.append(0)
 
     try:
         logger.info(f"Finished problem: {problem_id}, answers: {answers}, gold answer: {str(problem['answer'])}, #Correct: {sum(corrects)}")
     except:
         pass
-    pass_at_1 = sum(x == gold_answer for x in answers)/n
+
+    if final_answer:
+        pass_at_1 = sum(x == gold_answer for x in answers)/n
+    else:
+        pass_at_1 = 0
     cost = {
                 "cost": sum([d["cost"] for d in costs_problem]),
                 "input_tokens": sum([d["input_tokens"] for d in costs_problem]),
                 "output_tokens": sum([d["output_tokens"] for d in costs_problem]),
             }
+    
+    if os.path.exists(output_file):
+        anonymous_id = json.load(open(output_file))["anonymous_id"]
+    else:
+        all_ids = open("data/ids.txt", "r").read().split("\n")
+        anonymous_id = uuid.uuid4().hex[:6]
+        while anonymous_id in all_ids:
+            anonymous_id = uuid.uuid4().hex[:6]
+        with open("data/ids.txt", "a") as f:
+            f.write(anonymous_id + "\n")
 
     with open(output_file, "w") as f:
         json.dump({
                     "idx": problem_idx,
                     "problem": problem_statement,
-                    "gold_answer": str(problem["answer"]),
+                    "gold_answer": str(problem.get("answer", "None")),
                     "messages": messages_problem, 
                     "answers": [convert_answer(answer) for answer in answers],
                     "correct": corrects,
                     "pass_at_1": pass_at_1,
                     "cost": cost,
                     "detailed_costs": costs_problem,
-                    "warnings": warnings
+                    "warnings": warnings,
+                    "anonymous_id": anonymous_id
                 }, f)
 
 def convert_answer(answer):
-    if type(answer) == sympy.Integer:
-        return int(answer)
     try:
-        return str(answer)
+        if type(answer) == sympy.Integer:
+            return int(answer)
+        else:
+            return str(answer)
     except:
         return "None"
