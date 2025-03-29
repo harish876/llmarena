@@ -1,8 +1,19 @@
-# MathArena: Evaluating LLMs on Uncontaminated Math Competitions
+<div align="center">
+    <h1><img height="150px" src="./images/matharena_icon.png" alt="MathArena"><br>MathArena</h1>
+
+  <a href="https://www.python.org/">
+<img alt="Build" src="https://img.shields.io/badge/Python-3.12-1f425f.svg?color=blue">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+<img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
+  </a>
+</div>
+
+## 👋 Overview
 
 MathArena is a platform for the evaluation of LLMs on the latest math competitions and olympiads. It is hosted on [matharena.ai](https://matharena.ai/). This repository contains all the code used for model evaluation of the competitions. The README explains how to run your models or add a new competition. 
 
-## Table of Contents
+## 📑 Table of Contents
 - [Installation](#installation)
 - [Evaluating a New Model](#evaluating-a-new-model)
   - [Model Configuration](#model-configuration)
@@ -17,7 +28,7 @@ MathArena is a platform for the evaluation of LLMs on the latest math competitio
 - [Viewing Results](#viewing-results)
 - [Evaluation logs](#evaluation-logs)
 
-## Installation
+## 🚀 Installation
 
 MathArena uses [UV](https://github.com/astral-sh/uv) to manage dependencies. If you want to run local models, uncomment the vllm installation in `pyproject.toml`.
 
@@ -43,7 +54,7 @@ python -m pip install -e .
 ```
 If you choose this option, disregard `uv run` in all instructions and use python directly instead.
 
-## Evaluating a New Model
+## 🤖 Evaluating a New Model
 
 ### Model Configuration
 
@@ -63,11 +74,11 @@ Create a configuration file in the `configs/` folder. Each config must include:
   - API settings like `temperature`, `top_p`, and `top_k` (default: `temperature` is from competition config, see [Adding a Competition](#adding-a-competition)).
   - `max_tokens`: Max number of tokens for the model (default: from competition config, see [Adding a Competition](#adding-a-competition)).
   - `concurrent_requests`: Number of parallel requests to API (default: 30).
-  - `timeout`: Request timeout in seconds (default: 500).
+  - `timeout`: Request timeout in seconds (default: 2000).
   - `max_retries`: Retry attempts to API (default: 50).
   - `read_cost` & `write_cost`: Cost per million tokens in USD for input and output tokens (default: 1 each).
-  - `date`: Creation date of the model in the format "yyyy-mm-dd". Only necessary to ensure automatic inclusion of the asterisk on the website for competitions that happen before this date.
-  - `batch_processing`: If set to True, the model will be queried using batch processing. This mode is only available for OpenAI and Anthropic models and cuts the cost of the model in half, but it will increase the time required to obtain the completions.
+  - `date`: Creation date of the model in the format "yyyy-mm-dd". Only affects the website.
+  - `batch_processing`: If set to true, the model will be queried using batch processing. Only available for OpenAI and Anthropic models.
 
 ### Running the model
 Execute the following command to evaluate a model on a competition:
@@ -86,6 +97,8 @@ uv run python scripts/run.py --configs openai/gpt-4o.yaml --comp aime/aime_2025_
 - `skip_existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem (default: 4).
 
+*Note*: Errors thrown by the API provider are retried every minute up to 50 times. If no answer is returned after 50 tries, the answer will be counted as incorrect. Running again with `skip_existing` enabled will attempt to run the problems on which this occurred again.
+
 ### Running Models Locally Using VLLM
 
 If using a local model with vllm, start the server:
@@ -93,17 +106,17 @@ If using a local model with vllm, start the server:
 vllm serve [[model_name]] --dtype auto --api-key token-abc123
 ```
 
-## Adding a Competition
+## ➕ Adding a Competition
 Adding a competition can be done in several quick steps. 
 
 ### Setting Up Competition Files
 In the `data/` folder, create a new directory for your competition with the following structure:
 1. **Problems:**  
-   - Create a subfolder `problems/` and add each problem as a separate LaTeX file named `1.tex`, `2.tex`, …, `{k}.tex`, where `k` is the number of problems in your competition. You can skip a problem if you want/need to.
+   - Create a subfolder `problems/` and add each problem as a separate LaTeX file named `1.tex`, `2.tex`, ..., `{k}.tex`, where `k` is the number of problems in your competition. You can skip a problem if you want/need to.
 2. **Competition Config:**  
    - Create a `config.yaml` with:
-     - `instruction`: Instructions for the model. *Must* require the final answer be in `\boxed{}` (for correct parsing).
-     - `default_temperature`: Default temperature for runs.
+     - `instruction`: Instructions for the model. *Must* require the final answer be in `\boxed{}`.
+     - `default_temperature`: Default temperature.
      - `default_max_tokens`: Default max tokens.
      - `strict_parsing`: `true` for strict format matching (e.g., only `\boxed{43}` is accepted) or `false` for lenient parsing.
      - `n_problems`: Total number of problems.
@@ -115,8 +128,8 @@ In the `data/` folder, create a new directory for your competition with the foll
      - `answer`: The integer answer.
    - If the competition is evaluated using human judges, add a `grading_scheme.json` file. This file should consist of a list of dictionaries, each of which contain the following fields:
      - `id`: The problem filename (without the `.tex` extension).
-     - `points`: The maximum number of points to be gained for the question.
-     - `scheme`: A list of dictionaries, each containing specific substeps for which points can be given. Specifically, each dictionary contains the following keys:
+     - `points`: The maximum number of points for the question.
+     - `scheme`: A list of dictionaries, each containing substeps for which points are awarded. Each dictionary contains the following keys:
         - `points`: Points associated with this step.
         - `title`: Title of the step. Should be unique across all dictionaries in this scheme.
         - `desc`: Description of the step.
@@ -147,7 +160,7 @@ To set up grading of questions, convert the model answers to TeX files:
 ```bash
 uv run python scripts/judge/answers_to_latex.py --comp path/to/competition
 ```
-This will compile all model answers in a PDF file in the folder `latex/path/to/competition`. Double-check the produced PDFs to check for compilation errors. They should be manually fixed.
+This will compile all model answers in a PDF file in the folder `latex/path/to/competition`.
 
 Now, collect all PDFs for all evaluated models in a single folder using:
 ```bash
@@ -189,7 +202,7 @@ uv run python scripts/judge/merge_judgments.py --comp path/to/competition --grad
 ```
 This will add the judgments directly in the raw output traces of the models.
 
-## Viewing Results
+## 📊 Viewing Results
 
 Launch a local web server to inspect the results:
 ```bash
@@ -203,20 +216,21 @@ Access the app at [http://localhost:5001/](http://localhost:5001/). Warning sign
 
 If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip_existing`. If the parser requires a manual overwrite, you can edit `src/matharena/parse_manual.py` and add a key-value pair mapping the model solution to a parseable solution.
 
-## Evaluation Logs
+## 🪵 Evaluation Logs
 
 You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
 
-## Citation
+
+## 📚 Citation
 
 ```
 @misc{balunovic_srimatharena_2025,
-	title = {MathArena: Evaluating LLMs on Uncontaminated Math Competitions},
+  title = {MathArena: Evaluating LLMs on Uncontaminated Math Competitions},
   author = {Mislav Balunović and Jasper Dekoninck and Ivo Petrov and Nikola Jovanović and Martin Vechev},
-	copyright = {MIT},
-	url = {https://matharena.ai/},
-	publisher = {SRI Lab, ETH Zurich},
-	month = feb,
-	year = {2025},
+  copyright = {MIT},
+  url = {https://matharena.ai/},
+  publisher = {SRI Lab, ETH Zurich},
+  month = feb,
+  year = {2025},
 }
 ```
