@@ -58,7 +58,7 @@ If you choose this option, disregard `uv run` in all instructions and use python
 
 ### Model Configuration
 
-Create a configuration file in the `configs/` folder. Each config must include:
+Create a configuration file in the `configs/models` folder. Each config must include:
 - **Required:**
   - `model`: Model name. Reasoning effort of OpenAI models can be set by appending `--[low/medium/high]` to the model name, e.g., `o3-mini--high`.
   - `api`: API provider. The API key should be defined as environment variable when using the specified API. The supported options with their corresponding API keys are:
@@ -85,19 +85,19 @@ Execute the following command to evaluate a model on a competition:
 ```bash
 uv run python scripts/run.py --configs path/to/your/config --comp path/to/competition
 ```
-- `path/to/your/config`: Relative path from the `configs/` folder to the model configuration.
-- `path/to/competition`: Relative path from the `data/` folder to the competition folder.
+- `path/to/your/config`: Relative path from the `configs/models` folder to the model configuration (excluding the `.yaml` extension).
+- `path/to/competition`: Relative path from the `configs/competition` folder to the competition folder (excluding the `.yaml` extension).
 
 **Example:**
 ```bash
-uv run python scripts/run.py --configs openai/gpt-4o.yaml --comp aime/aime_2025_I
+uv run python scripts/run.py --configs openai/gpt-4o --comp aime/aime_2025_I
 ```
 
 **Additional Flags:**
-- `skip_existing`: Skip problems already processed through the model.
+- `skip-existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem (default: 4).
 
-*Note*: Errors thrown by the API provider are retried every minute up to 50 times. If no answer is returned after 50 tries, the answer will be counted as incorrect. Running again with `skip_existing` enabled will attempt to run the problems on which this occurred again.
+*Note*: Errors thrown by the API provider are retried every minute up to 50 times. If no answer is returned after 50 tries, the answer will be counted as incorrect. Running again with `skip-existing` enabled will attempt to run the problems on which this occurred again.
 
 ### Running Models Locally Using VLLM
 
@@ -106,23 +106,45 @@ If using a local model with vllm, start the server:
 vllm serve [[model_name]] --dtype auto --api-key token-abc123
 ```
 
-## ➕ Adding a Competition
-Adding a competition can be done in several quick steps. 
+### Uploading answers to HuggingFace
+You can upload the model answers to HuggingFace as follows:
+```bash
+uv run python scripts/upload_outputs.py --org your_org --repo-name your_repo_name --comp path/to/competition
+```
+This will upload all model answers to a private repository named `your_org/your_repo_name`. `path/to/competition` is the relative path from the `configs/competition` folder to the competition folder (excluding the `.yaml` extension).
 
-### Setting Up Competition Files
+## ➕ Adding a Competition
+
+### Competition Format
+MathArena supports the addition of any benchmark or competition uploaded to HuggingFace (or locally saved using the `datasets` library) that has the following columns:
+- `problem_idx` (int): The id associated with the problem.
+- `problem`(str): The problem statement.
+- `answer` (str, Optional): The answer to the problem. Required for competitions with final answers.
+- `points` (int, Optional): The number of points associated with the problem. Only required for competitions without final answers.
+- `sample_solution` (str, Optional): Sample solution to the problem. Only required for competitions without final answers and during autograding.
+- `sample_grading` (str, Optional): Example of how the grading format should look like. Only required for competitions without final answers and during autograding.
+- `grading_scheme` (list, Optional): The grading scheme for the problem. Only required for competitions without final answers.
+We refer to [the instructions regarding graded competitions](#competitions-requiring-grading) for the specific format of the grading scheme.
+
+### Configuration
+To set up MathArena for evaluation on the competition, you should add a competition config file in the `configs/competitions` folder with the following parameters:
+- `instruction`: Instructions for the model. *Must* require the final answer be in `\boxed{}`.
+- `default_temperature`: Default temperature.
+- `default_max_tokens`: Default max tokens.
+- `strict_parsing`: `true` for strict format matching (e.g., only `\boxed{43}` is accepted) or `false` for lenient parsing.
+- `n_problems`: Total number of problems.
+- `date`: Date of the competition, in the format "YYYY-MM-DD".
+- `dataset_path`: Path to the dataset uploaded on HuggingFace or stored locally.
+- `final_answer` (optional): If set to false, the competition is one that is manually graded with judges. Defaults to true if not set.
+
+### Manual Curation and Creation
+To create a pipeline that enables quick curation and easy generation of new competitions, we describe our full process for dataset creation. Note that you do not have to follow these steps if you have another way to generate your benchmark in the appropriate format.
+
+#### Setting Up Competition Files
 In the `data/` folder, create a new directory for your competition with the following structure:
 1. **Problems:**  
    - Create a subfolder `problems/` and add each problem as a separate LaTeX file named `1.tex`, `2.tex`, ..., `{k}.tex`, where `k` is the number of problems in your competition. You can skip a problem if you want/need to.
-2. **Competition Config:**  
-   - Create a `config.yaml` with:
-     - `instruction`: Instructions for the model. *Must* require the final answer be in `\boxed{}`.
-     - `default_temperature`: Default temperature.
-     - `default_max_tokens`: Default max tokens.
-     - `strict_parsing`: `true` for strict format matching (e.g., only `\boxed{43}` is accepted) or `false` for lenient parsing.
-     - `n_problems`: Total number of problems.
-     - `date`: Date of the competition, in the format "YYYY-MM-DD".
-     - `final_answer` (optional): If set to false, the competition is one that is manually graded with judges. Defaults to true if not set.
-3. **Answers:**  
+2. **Answers:**  
    - If the competition is one based on final answers, add an `answers.csv` file with columns `id` and `answer`.
      - `id`: The problem filename (without the `.tex` extension).
      - `answer`: The integer answer.
@@ -134,23 +156,30 @@ In the `data/` folder, create a new directory for your competition with the foll
         - `title`: Title of the step. Should be unique across all dictionaries in this scheme.
         - `desc`: Description of the step.
 
-### Verifying Problem Statements
+#### Verifying Problem Statements
 Ensure your LaTeX problems compile correctly:
 ```bash
-uv run python scripts/check_latex.py --comp path/to/competition
+uv run python scripts/curation/check_latex.py --comp path/to/competition
 ```
 Then, build the `latex/main.tex` to generate a PDF and confirm all problems appear as expected.
+
+#### Upload to HuggingFace
+Finally, you can upload the competition to HuggingFace:
+```bash
+uv run python scripts/curation/upload_competition.py --org your_org --repo-name your_repo_name --comp path/to/competition
+```
+This will upload all answers in the appropriate format to a private repository named `your_org/your_repo_name`. `path/to/competition` is the relative path from the `configs/competition` folder to the competition folder (excluding the `.yaml` extension). Thus, you need to have created the configuration file before uploading to HuggingFace.
 
 ### Running Models on Competitions
 To run multiple models (possibly across different APIs), use:
 ```bash
-uv run python scripts/run_multiple.py --apis openai google anthropic together --comp path/to/competition
+uv run python scripts/curation/run_multiple.py --apis openai google anthropic together --comp path/to/competition
 ```
 This will run models from the same API sequentially and from different APIs concurrently.
 **Options:**
 - `--simul`: Run all models in parallel, even if they use the same API.
 - `models`: Provide space-separated regex patterns to filter models. A model is only run if it matches any of the regexes.
-- `skip_existing`: Skip problems already processed through the model.
+- `skip-existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem (default: 4).
 
 *Note:* For local vllm usage, ensure the vllm server is running as described above. Logs will be found in the `logs/` folder.
@@ -177,21 +206,21 @@ To run an LLM as a judge, you must first add the solutions of all problems of th
 
 Then, use the following command:
 ```bash
-uv run python scripts/grade.py --grader_config path/to/grader --solver_config path/to/solver/1 path/to/solver/2 --comp path/to/competition
+uv run python scripts/grade.py --grader-config path/to/grader --solver-config path/to/solver/1 path/to/solver/2 --comp path/to/competition
 ```
 
 **Options:**
-- `path/to/grader`: Relative path from the `configs/` folder to the model configuration for the judge.
-- `path/to/solver`: Relative path from the `configs/` folder to the model configuration of the judged model. Multiple ones can be given by passing space-separated paths.
-- `path/to/competition`: Relative path from the `data/` folder to the competition folder.
+- `path/to/grader`: Relative path from the `configs/models` folder to the model configuration for the judge.
+- `path/to/solver`: Relative path from the `configs/models` folder to the model configuration of the judged model. Multiple ones can be given by passing space-separated paths.
+- `path/to/competition`: Relative path from the `configs/competitions` folder to the competition folder.
 
 **Example:**
 ```bash
-uv run python scripts/grade.py --grader_config openai/o3-mini.yaml --solver_config openai/o3-mini.yaml anthropic/claude-37.yaml --comp usamo/usamo_2025
+uv run python scripts/grade.py --grader-config openai/o3-mini --solver-config openai/o3-mini anthropic/claude-37 --comp usamo/usamo_2025
 ```
 
 **Additional Flags:**
-- `skip_existing`: Skip problems already processed through the model.
+- `skip-existing`: Skip problems already processed through the model.
 - `n`: Number of runs per problem to evaluate (default: 4). Must be no larger than the amount of generated solutions.
 
 *Notes:* For local vllm usage, ensure the vllm server is running as described above. Logs will be found in the `logs/` folder. We also recommend either using generalist models or either of `o1`, `o3-mini` or `Claude 3.7` as graders due to their robustness with respect to the formatting instructions. 
@@ -214,23 +243,22 @@ Access the app at [http://localhost:5001/](http://localhost:5001/). Warning sign
 * ⚠️: The correct answer might be present in the model answer, but it was not extracted.
 * ❕: Model likely hit max token limit.
 
-If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip_existing`. If the parser requires a manual overwrite, you can edit `src/matharena/parse_manual.py` and add a key-value pair mapping the model solution to a parseable solution.
+If issues are found, delete the corresponding output file or fix the parser and rerun the model with `skip-existing`. If the parser requires a manual overwrite, you can edit `src/matharena/parse_manual.py` and add a key-value pair mapping the model solution to a parseable solution.
 
 ## 🪵 Evaluation Logs
 
-You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://files.sri.inf.ethz.ch/matharena/matharena_data.zip](https://files.sri.inf.ethz.ch/matharena/matharena_data.zip).
-
+You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://huggingface.co/datasets/MathArena](https://huggingface.co/datasets/MathArena).
 
 ## 📚 Citation
 
 ```
 @misc{balunovic_srimatharena_2025,
-  title = {MathArena: Evaluating LLMs on Uncontaminated Math Competitions},
+	title = {MathArena: Evaluating LLMs on Uncontaminated Math Competitions},
   author = {Mislav Balunović and Jasper Dekoninck and Ivo Petrov and Nikola Jovanović and Martin Vechev},
-  copyright = {MIT},
-  url = {https://matharena.ai/},
-  publisher = {SRI Lab, ETH Zurich},
-  month = feb,
-  year = {2025},
+	copyright = {MIT},
+	url = {https://matharena.ai/},
+	publisher = {SRI Lab, ETH Zurich},
+	month = feb,
+	year = {2025},
 }
 ```

@@ -1,0 +1,7 @@
+model: XAI/grok
+api: xai
+max_tokens: 32000
+read_cost: 0
+write_cost: 0
+human_readable_id: Grok 3 (Think)
+concurrent_requests: 1

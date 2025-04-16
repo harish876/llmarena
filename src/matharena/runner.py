@@ -4,6 +4,7 @@ import json
 import sympy
 from loguru import logger
 from datetime import datetime
+from datasets import load_dataset
 import yaml
 import uuid
 
@@ -12,16 +13,14 @@ from matharena.cot_solver import CoTSolver
 from matharena.parser import extract_answer, parse_answer, check_answers, WarningType
 from matharena.possible_issues import check_number_proximity_any_order, check_all_numbers, check_output_length
 
-from loguru import logger
-from datetime import datetime
-import yaml
 
-def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs"):
+def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs", 
+        competition_config_folder="competition_configs"):
     model = model_config["model"]
     n = model_config["n"]
     api = model_config["api"]
 
-    with open(f"data/{competition}/config.yaml", "r") as f:
+    with open(f"{competition_config_folder}/{competition}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
 
     date_comp = datetime.strptime(competition_config["date"], "%Y-%m-%d")
@@ -47,21 +46,10 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 
     final_answer_comp = competition_config.get("final_answer", True)
 
-    if final_answer_comp:
-        answers_path = os.path.join("data", competition, "answers.csv")
-        with open(answers_path, "r") as f:
-            reader = csv.DictReader(f)
-            problems = list(reader)
-    else:
-        grading_scheme_path = os.path.join("data", competition, "grading_scheme.json")
-        with open(grading_scheme_path, "r") as f:
-            problems = json.load(f)
-    for problem in problems:
-        problem_path = os.path.join("data", competition, "problems", problem["id"] + ".tex")
-        image_path = os.path.join("data", competition, "images", "problem_" + problem["id"] + ".png")
-        with open(problem_path, "r") as f:
-            problem["problem_statement"] = f.read()
-        problem["image_path"] = None # image_path if os.path.exists(image_path) else None
+    problems = load_dataset(competition_config["dataset_path"], split="train").to_list()
+
+    # sort by problem_idx
+    problems = sorted(problems, key=lambda x: x["problem_idx"])
 
     output_dir = os.path.join(f"{output_folder}/{competition}/", config_path.replace(".yaml", ""))
     os.makedirs(output_dir, exist_ok=True)
@@ -73,7 +61,7 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
     detailed_costs_per_problem = {i: [] for i in range(len(problems))}
 
     for i, problem in enumerate(problems):
-        problem_id = problem["id"]
+        problem_id = problem["problem_idx"]
         output_file = os.path.join(output_dir, f"{problem_id}.json")
         if skip_existing and os.path.exists(output_file):
             data_file = json.load(open(output_file))
@@ -102,11 +90,11 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
                                             final_answer=final_answer_comp)
                 continue
 
-        problem_statement = problem["problem_statement"]
+        problem_statement = problem["problem"]
         problem_prompt = prompt_template.format(problem_statement=problem_statement)
         for _ in range(n - len(all_messages_per_problem[i])):
             batch_idx_to_problem_idx[len(batch_prompts)] = i
-            batch_prompts.append((problem_prompt, problem["image_path"]))
+            batch_prompts.append((problem_prompt, None))
 
     logger.info("Collected all queries, now running")
 
@@ -139,9 +127,9 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 def calculate_problem_results(problem, output_dir, messages_problem, 
                               costs_problem, problem_idx, strict_parsing, 
                               final_answer=True):
-    problem_id = problem["id"]
+    problem_id = problem["problem_idx"]
 
-    problem_statement = problem["problem_statement"]
+    problem_statement = problem["problem"]
     if final_answer:
         gold_answer, _ = parse_answer(str(problem["answer"]))
     else:
@@ -197,7 +185,7 @@ def calculate_problem_results(problem, output_dir, messages_problem,
                 "output_tokens": sum([d["output_tokens"] for d in costs_problem]),
             }
     
-    if os.path.exists(output_file):
+    if os.path.exists(output_file) and "anonymous_id" in json.load(open(output_file)):
         anonymous_id = json.load(open(output_file))["anonymous_id"]
     else:
         all_ids = open("data/ids.txt", "r").read().split("\n")

@@ -1,0 +1,14 @@
+model: meta-llama/llama-4-maverick
+api: openrouter
+max_tokens: 32000
+temperature: 0.6
+top_p: 0.9
+provider:
+  allow_fallbacks: False
+  order:
+  - Fireworks
+read_cost: 0.22
+write_cost: 0.88
+human_readable_id: Llama-4-Maverick
+date: "2025-04-05"
+concurrent_requests: 8

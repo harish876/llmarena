@@ -16,11 +16,13 @@ parser.add_argument("--comp", type=str, required=True)
 parser.add_argument("--models", type=str, nargs="+", default=None)
 parser.add_argument("--port", type=int, default=5001)
 parser.add_argument("--output-folder", type=str, default="outputs")
-parser.add_argument("--config-folder", type=str, default="configs")
+parser.add_argument("--config-folder", type=str, default="configs/models")
+parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
 args = parser.parse_args()
 
 def analyze_run(competition, models):
-    configs, human_readable_ids = extract_existing_configs(competition, args.output_folder, args.config_folder)
+    configs, human_readable_ids = extract_existing_configs(competition, args.output_folder, args.config_folder, 
+                                                           args.competition_config_folder)
     if models is not None:
         for config_path in list(human_readable_ids.keys()):
             if human_readable_ids[config_path] not in models:

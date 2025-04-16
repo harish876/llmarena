@@ -55,7 +55,6 @@ for data_dir in subfolders:
             if "</think>" in message:
                 message = message[message.index("</think>"):].replace("</think>", "")
             content += message + "\n\n"
-        
         with open(f"{data_dir_no_outputs}/{idx}/answers.tex", "w") as f:
             f.write(content)
         

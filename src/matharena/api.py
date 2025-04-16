@@ -3,6 +3,7 @@ import re
 import os
 from tqdm import tqdm
 from google import genai
+from google.genai import types
 from openai import OpenAI
 from together import Together
 import anthropic
@@ -19,8 +20,9 @@ import tempfile
 
 
 def encode_image(image_path):
+    image_type = image_path.split(".")[-1]
     with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode("utf-8")
+        return image_type, base64.b64encode(image_file.read()).decode("utf-8")
 
 class APIQuery:
     def __init__(self, model, 
@@ -42,10 +44,10 @@ class APIQuery:
                  openai_responses=False,
                  **kwargs):
         
-        if "think" in model and api == "google":
-            logger.info("Google Think model does not allow chat.")
-            is_chat = False # think model cannot handle chat
-            max_tokens_param = "max_output_tokens"
+        # if "think" in model and api == "google":
+        #     logger.info("Google Think model does not allow chat.")
+        #     is_chat = False # think model cannot handle chat
+        #     max_tokens_param = "max_output_tokens"
         if ("o1" in model or "o3" in model) and api == "openai":
             logger.info("Not using system messages for o1/o3 model.")
             no_system_messages = True # o1 model cannot handle system messages
@@ -98,6 +100,9 @@ class APIQuery:
         self.initialize_api_keys()
 
     def kwarg_remover(self, api, model, kwargs):
+        for kwarg in ["top_p", "top_k", "temperature"]:
+            if kwarg in kwargs and kwargs[kwarg] is None:
+                del kwargs[kwarg]
         if (api == "anthropic" and "claude-3-7" in model) or (("o1" in model or "o3" in model) and api == "openai"):
             for kwarg_to_remove in ["top_p", "top_k", "temperature"]:
                 if kwarg_to_remove in kwargs:
@@ -105,16 +110,20 @@ class APIQuery:
                     del kwargs[kwarg_to_remove]
 
     def initialize_api_keys(self):
-        if self.api == "openai":
+        if self.api == "xai":
+            self.api_key = os.getenv("XAI_API_KEY")
+            self.base_url = "https://api.x.ai/v1"
+            self.api = "openai"
+        elif self.api == "openai":
             self.api_key = os.getenv("OPENAI_API_KEY")
         elif self.api == "together":
             self.api_key = os.getenv("TOGETHER_API_KEY")
             self.base_url = "https://api.together.xyz/v1"
         elif self.api == "google":
             self.api_key = os.getenv("GOOGLE_API_KEY")
-            if not "think" in self.model:
-                self.api = "openai"
-                self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+            # if not "think" in self.model:
+            #     self.api = "openai"
+            #     self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
         elif self.api == "anthropic":
             self.api_key = os.getenv("ANTHROPIC_API_KEY")
         elif self.api == "hyperbolic":
@@ -132,7 +141,6 @@ class APIQuery:
         elif self.api == "openrouter":
             self.api_key = os.getenv("OPENROUTER_API_KEY")
             self.base_url = "https://openrouter.ai/api/v1"
-            self.api = "openai"
         elif self.api == "fireworks":
             self.api_key = os.getenv("FIREWORKS_API_KEY")
             self.base_url = "https://api.fireworks.ai/inference/v1"
@@ -147,6 +155,7 @@ class APIQuery:
             # Poll the server until it's running.
         else:
             raise ValueError(f"API {self.api} not supported.")
+
         assert self.api_key is not None, f"API key not found."
 
     def prepare_query(self, query):
@@ -250,6 +259,8 @@ class APIQuery:
             return self.google_query(query)
         elif self.api == "anthropic":
             return self.anthropic_query(query)
+        elif self.api == "openrouter":
+            return self.openrouter_query(query)
         
     def postprocess_anthropic_result(self, result):
         output_text = ""
@@ -373,12 +384,71 @@ class APIQuery:
 
         return self.postprocess_anthropic_result(result)
     
+    def openrouter_query(self, query):
+        query, image_path = query
+        headers = {
+            'Authorization': f'Bearer {self.api_key}',
+            'Content-Type': 'application/json',
+        }
+
+        query_key = "messages" if self.is_chat else "prompt"
+
+        response = requests.post(
+            'https://openrouter.ai/api/v1/chat/completions', 
+            headers=headers, 
+            json={
+                'model': self.model,
+                query_key: query,
+                **self.kwargs
+            }
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Error: {response.status_code} - {response.text}")
+        
+        json_response = response.json()
+
+        if self.is_chat:
+            output = json_response['choices'][0]['message']['content']
+            if "reasoning_content" in json_response['choices'][0]['message'] and json_response['choices'][0]['message']['reasoning_content'] is not None:
+                output = json_response['choices'][0]['message']['reasoning_content'] + "</think>\n\n" + output
+            return {
+                "output": output,
+                "input_tokens": json_response['usage']['prompt_tokens'],
+                "output_tokens": json_response['usage']['completion_tokens'],
+            }
+        else:
+            output = json_response['choices'][0]['text']
+            output = self.skip_repetition(output, query)
+            
+            reasoning_content = ""
+            if "reasoning_content" in json_response['choices'][0] and json_response['choices'][0]['reasoning_content'] is not None:
+                reasoning_content = json_response['choices'][0]['reasoning_content']
+            if "reasoning" in json_response['choices'][0] and json_response['choices'][0]['reasoning'] is not None:
+                reasoning_content = json_response['choices'][0]['reasoning']
+
+            text = "</think>\n\n"
+            if len(output) == 0:
+                text = ""
+            output = reasoning_content + text + output
+            
+            return {
+                "output": output,
+                "input_tokens": json_response['usage']['prompt_tokens'],
+                "output_tokens": json_response['usage']['completion_tokens'],
+            }
+    
     def google_query(self, query):
         client = genai.Client(api_key=self.api_key, http_options={'api_version':'v1alpha'})
         query, image_path = query
+        parts = []
         if image_path is not None:
             file = client.files.upload(file=image_path)
-            query = [query, file]
+            assert len(query) == 1
+            parts.append(types.Part.from_uri(file_uri=file.uri, mime_type=file.mime_type))
+        parts.append(types.Part.from_text(text=query[0]["content"]))
+        query = [types.Content(role="user", parts=parts)]
+
         # if "think" in self.model:
         #     config['thinking_config'] = {'include_thoughts': True}
         response = client.models.generate_content(
@@ -520,8 +590,8 @@ class APIQuery:
                         timeout=self.timeout, max_retries=0)
         query, image_path = query
         if image_path is not None:
-            base64_image = encode_image(image_path)
-            query.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
+            image_type, base64_image = encode_image(image_path)
+            query.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{base64_image}"}}]})
 
         if not self.openai_responses:
             response = client.chat.completions.create(
@@ -536,6 +606,9 @@ class APIQuery:
                 output = response.choices[0].message.reasoning_content + "\n\n" + output
             input_tokens = response.usage.prompt_tokens
             output_tokens = response.usage.completion_tokens
+            if self.base_url is not None and "api.x.ai" in self.base_url:
+                output_tokens += response.usage.completion_tokens_details.reasoning_tokens
+
         else:
             response = client.responses.create(
                 model=self.model,
@@ -546,7 +619,6 @@ class APIQuery:
             output = response.output[-1].content[0].text
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
-        
         return {
             "output": output,
             "input_tokens": input_tokens,

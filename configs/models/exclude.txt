@@ -1,0 +1,6 @@
+openai/gpt-4o.yaml
+openai/o1-pro.yaml
+qwen/qwq-preview.yaml
+anthropic/claude-35.yaml
+deepseek/deepseek_distill_1.5b.yaml
+deepseek/deepseek_v3.yaml

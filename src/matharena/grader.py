@@ -1,22 +1,18 @@
-import csv
 import os
 import json
 import json5
-import sympy
 from loguru import logger
 from datetime import datetime
+from difflib import SequenceMatcher
 import yaml
 import re
-import uuid
+from datasets import load_dataset
 
 from matharena.api import APIQuery
 from matharena.cot_solver import CoTSolver
 from matharena.parser import parse_grading, WarningType
 
-from loguru import logger
-from datetime import datetime
-import yaml
-from difflib import SequenceMatcher
+
 
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio() > 0.8  # Allow minor formatting differences
@@ -29,10 +25,10 @@ def clean_string_to_json(text: str) -> str:
 
 def format_grading_scheme(scheme, problem_id):
     formatted_str = ""
-    if scheme['id'] != problem_id:
+    if scheme['problem_idx'] != problem_id:
         raise ValueError(f'Incorrect schema given for problem {problem_id}')
     total_points = 0
-    for category in scheme['scheme']:
+    for category in scheme['grading_scheme']:
         total_points += category['points']
         formatted_str += f'Category: {category['title']}\nAvailable points: {category['points']}\nDescription: {category['desc']}\n\n'
     
@@ -41,15 +37,17 @@ def format_grading_scheme(scheme, problem_id):
     
     return formatted_str
 
-def run_grader(grader_config, solver_config_path, competition, skip_existing=False, output_folder="outputs", grading_folder="autogrades"):
+def run_grader(grader_config, solver_config_path, competition, skip_existing=False, 
+               output_folder="outputs", grading_folder="autogrades", 
+               competition_config_folder="competition_configs", autograding_config_path="configs/autograding/config.yaml"):
     model = grader_config["model"]
     n = grader_config["n"]
     api = grader_config["api"]
 
-    with open("autograding_configs/config.yaml", "r") as f:
+    with open(autograding_config_path, "r") as f:
         autograding_config = yaml.safe_load(f)
 
-    with open(f"data/{competition}/config.yaml", "r") as f:
+    with open(f"{competition_config_folder}/{competition}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
 
     n_evals = autograding_config["n_evals"]
@@ -74,25 +72,7 @@ def run_grader(grader_config, solver_config_path, competition, skip_existing=Fal
 
     prompt_template = f"{autograding_config['grading_instruction']}"
 
-    final_answer_comp = competition_config.get("final_answer", True)
-
-    if final_answer_comp:
-        raise ValueError("Cannot run grader on an answer-based competition")
-    else:
-        grading_scheme_path = os.path.join("data", competition, "grading_scheme.json")
-        with open(grading_scheme_path, "r") as f:
-            problems = json.load(f)
-
-    for problem in problems:
-        problem_path = os.path.join("data", competition, "problems", problem["id"] + ".tex")
-        solution_path = os.path.join("data", competition, "solutions", problem["id"] + ".tex")
-        grading_path = os.path.join("data", competition, "sample_grading", problem["id"] + ".txt")
-        with open(problem_path, "r") as f:
-            problem["problem_statement"] = f.read()
-        with open(solution_path, "r") as f:
-            problem["correct_solution"] = f.read()
-        with open(grading_path, "r") as f:
-            problem["grading_example"] = f.read()
+    problems = load_dataset(competition_config["dataset_path"], split="train").to_list()
 
     output_dir = os.path.join(f"{output_folder}/{competition}/", solver_config_path.replace(".yaml", ""))
     autograder_dir = f"{grading_folder}/{competition}/"
@@ -105,8 +85,9 @@ def run_grader(grader_config, solver_config_path, competition, skip_existing=Fal
     all_evals_per_problem_per_solution = {i : {} for i in range(len(problems))}
 
     for i, problem in enumerate(problems):
-        problem_id = problem["id"]
+        problem_id = problem["problem_idx"]
         output_file = os.path.join(output_dir, f"{problem_id}.json")
+
         if not os.path.exists(output_file):
             raise ValueError(f"Could not find the solutions for {problem_id} in {output_dir}")
         else:
@@ -118,9 +99,10 @@ def run_grader(grader_config, solver_config_path, competition, skip_existing=Fal
                 messages_one for messages_one in messages if len(messages_one[-1]["content"]) > 0
             ]
             all_messages_per_problem[i] = messages
+
         marking_schema = format_grading_scheme(problem, problem_id)
-        marking_schemas[i] = problem['scheme']
-        problem_id = problem["id"]
+        marking_schemas[i] = problem['grading_scheme']
+
         for j in range(n_evals):
             auto_grading_file = os.path.join(autograder_dir,f"{problem_id}/{problem['anon_id']}_{grader_config['model'].split('/')[-1]}-{j}.json")
             
@@ -134,12 +116,12 @@ def run_grader(grader_config, solver_config_path, competition, skip_existing=Fal
                                             i, j, grader_model_name=grader_config['model'].split('/')[-1])
                 continue
             for _, message in enumerate(messages):
-                problem_statement = problem["problem_statement"]
+                problem_statement = problem["problem"]
                 grading_prompt = prompt_template.format(
                     problem_statement=problem_statement, 
                     marking_schema=marking_schema, 
-                    correct_solution=problem['correct_solution'],  
-                    example_grading=problem['grading_example'],
+                    correct_solution=problem['sample_solution'],  
+                    example_grading=problem['sample_grading'],
                     solution=message if skip_existing and os.path.exists(auto_grading_file) else message[-1]["content"]
                 )
                 batch_idx_to_problem_idx[len(batch_prompts)] = (i, j)
@@ -171,7 +153,7 @@ def run_grader(grader_config, solver_config_path, competition, skip_existing=Fal
 
 def calculate_grading_results(problem, output_dir, gradings_per_solution, marking_schema, 
                               problem_idx, grader_idx, grader_model_name):
-    problem_id = problem["id"]
+    problem_id = problem["problem_idx"]
     anon_id = problem["anon_id"]
     
     output_file = os.path.join(output_dir, f"{problem_id}/{anon_id}_{grader_model_name}-{grader_idx}.json")
@@ -209,19 +191,23 @@ def calculate_grading_results(problem, output_dir, gradings_per_solution, markin
                 for (given, expected) in zip(parsed_grading["details"], marking_schema):
                     if not similar(given["title"], expected["title"]):
                         logger.error(f"Title mismatch: '{given['title']}' vs '{expected['title']}'")
-                        warning = max(warning,WarningType.MAJOR)
+                        warning = max(warning, WarningType.MAJOR)
                     elif given["points"] > expected["points"]:
-                        logger.warn(f"Warning: Given points ({given['points']}) exceed max allowed ({expected['points']}) for category '{given['title']}'")
-                        warning = max(warning,WarningType.MINOR)
+                        logger.warning(f"Warning: Given points ({given['points']}) exceed max allowed ({expected['points']}) for category '{given['title']}'")
+                        warning = max(warning, WarningType.MINOR)
+                        given["points"] = expected["points"]
+                    elif given["points"] < 0:
+                        logger.warning(f"Warning: Given points ({given['points']}) are negative for category '{given['title']}'")
+                        warning = max(warning, WarningType.MINOR)
+                        given["points"] = 0
 
                     given["title"] = expected["title"] 
                     final_points += given["points"]
                 parsed_grading["points"] = final_points
 
         except Exception as e:
-            import traceback
             logger.error(e)
-            warning = max(warning,WarningType.MAJOR)
+            warning = max(warning, WarningType.MAJOR)
             parsed_grading = {
                 "points": 0,
                 "details": [

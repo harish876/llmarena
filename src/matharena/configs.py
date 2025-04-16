@@ -20,7 +20,7 @@ def load_configs(root_dir, remove_extension=True):
     for file_path in yaml_files:
         with file_path.open('r') as f:
             config_data = yaml.safe_load(f)
-        file_path_remove_config = "/".join(str(file_path).split("/")[1:])
+        file_path_remove_config = str(file_path).replace(str(root) + "/", "")
         if remove_extension:
             file_path_remove_config = file_path_remove_config.replace(".yaml", "").replace(".yml", "")
         try:
@@ -47,13 +47,14 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path):
                 break
     return configs, human_readable_ids
 
-def extract_existing_configs(comp, root_dir, root_dir_configs, exclude_file_path=None):
-    with open(f"data/{comp}/config.yaml", "r") as f:
+def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competition_configs, exclude_file_path=None):
+    with open(f"{root_dir_competition_configs}/{comp}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
     
     is_final_answer = competition_config.get("final_answer", True)
 
     all_configs = load_configs(root_dir_configs)
+
     configs = dict()
     human_readable_ids = dict()
     for config_path in all_configs:

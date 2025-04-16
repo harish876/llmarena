@@ -23,3 +23,4 @@ data/ids.txt
 grading/
 latex/
 !usamo_report.pdf
+.gitlab-ci.yml

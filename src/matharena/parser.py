@@ -38,12 +38,21 @@ def parse_grading(text: str):
     
     return result
 
+def remove_inner_boxed(match: str):
+    pattern = r"(\\boxed|\\fbox)\{((?:[^{}]|\{(?2)\})*)\}"
+    matches = list(regex.finditer(pattern, match))
+    if not matches:
+        return match
+    for m in matches:
+        match = match.replace(m.group(0), m.group(2))
+    return match
+
 def find_last_boxed_content(text: str, list_answer: bool = False) -> Optional[str]:
     pattern = r"(boxed|fbox)\{((?:[^{}]|\{(?2)\})*)\}"
     matches = list(regex.finditer(pattern, text))
     if not matches:
         return None, WarningType.NONE
-    
+
     if len(matches) > 1 and list_answer:
         # find all boxed content on the same line (no \n in between) as the last boxed
         split_text = text.split("\n")
@@ -51,10 +60,10 @@ def find_last_boxed_content(text: str, list_answer: bool = False) -> Optional[st
             matches_line = list(regex.finditer(pattern, split_text[i]))
             if len(matches_line) > 0:
                 returned_boxed = ",".join([match.group(2) for match in matches_line])
-                return returned_boxed, WarningType.POSSIBLE
+                return remove_inner_boxed(returned_boxed), WarningType.POSSIBLE
 
-    last_match = matches[-1]
-    return last_match.group(2), WarningType.NONE
+    last_match = remove_inner_boxed(matches[-1].group(2))
+    return last_match, WarningType.NONE
 
 
 def extract_boxed_answer(text: str, list_answer: bool = False) -> Optional[str]:
@@ -92,12 +101,15 @@ def extract_last_integer(text: str) -> Optional[int]:
 
 
 def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True, list_answer: bool = False):
+    if text is None:
+        return None, WarningType.MAJOR
     text, warning = replace_unicode(text)
     answer, warning_new = extract_boxed_answer_parse(text, parse, list_answer)
+    if isinstance(answer, AnswerList) and len(answer.answers) == 1:
+        answer = answer.answers[0]
     warning = max(warning, warning_new)
     if answer is not None or strict_parsing:
         return answer, warning
-    
     return extract_last_integer(text)
 
 def parse_answer(s: str, primitive_type: type = None):
@@ -133,6 +145,7 @@ def normalize_string(s):
     # remove hline and vline
     s = s.replace(r"\hline", "")
     s = s.replace(r"\vline", "")
+    s = s.replace(r"\quad", " ")
     return strip(s)
 
 def remove_outer_brackets(s):
@@ -199,6 +212,7 @@ def replace_unicode(text: str) -> str:
 
 def remove_invalid_characters(text):
     text = re.sub(r'\\;', '', text)
+    text = re.sub(r'\\:', '', text)
     text = re.sub(r'\\,', '', text)
     
     return text
@@ -233,7 +247,6 @@ def check_answers(ans1, ans2):
             return False
         return ans1.equals(ans2)
     except Exception as e:
-        logger.error(f'Could not establish equality for answers {ans1} and {ans2}, error: {e}')
         return False
 
 class AnswerList:
@@ -318,7 +331,11 @@ class ParsePrimitive(ParseObject):
         if bool(re.search(r'sqrt(\d+)', string)):
             string = re.sub(r'sqrt(\d+)', r'sqrt{\1}', string)
         try:
+            # NOTE: Right now we just ignore the matrix, this is not actually correct matrix parsing
             latex_str = string
+            latex_str = re.sub(r'\\begin\{pmatrix\}(.*?)\\end\{pmatrix\}', r'\1', latex_str, flags=re.DOTALL)
+            latex_str = re.sub(r'\\begin\{bmatrix\}(.*?)\\end\{bmatrix\}', r'\1', latex_str, flags=re.DOTALL)
+            latex_str = re.sub(r'\\begin\{matrix\}(.*?)\\end\{matrix\}', r'\1', latex_str, flags=re.DOTALL)
             for _ in range(5):
                 init_str = latex_str
                 latex_str = re.sub(r'\\*(?:dfrac|tfrac|frac)\{([^{}]*)\}\{([^{}]*)\}', r'(\1)/(\2)', latex_str)
@@ -356,12 +373,22 @@ class ParsePrimitive(ParseObject):
             latex_str = re.sub(r'\{([^{}]*)\}', lambda m: '[' + m.group(1).replace(',', ', ') + ']', 
                                latex_str)
 
-            string = sympy.sympify(latex_str, 
-                                   locals={'binomial': sympy.binomial, 
-                                           'pi': sympy.pi, 
-                                           'E': sympy.E, 
-                                           'I': sympy.I}
-                                )
+            locals = {
+                'binomial': sympy.binomial, 
+                'pi': sympy.pi, 
+                'E': sympy.E, 
+                'I': sympy.I
+            }
+            try:
+                string = sympy.sympify(latex_str, locals=locals)
+            except Exception as e:
+                # try removing the leftover \\
+                latex_str = latex_str.replace("\\", "")
+                try:
+                    string = sympy.sympify(latex_str, locals=locals)
+                except Exception as e:
+                    warning = max(warning, WarningType.MAJOR)
+                    return None, warning
         except Exception as e:
             # logger.warning(f"Couldn't parse {string} with standard LaTeX commands")
 
@@ -449,7 +476,6 @@ class ParseList(ParseObject):
                     if not obj.is_complete(strip(used_delim.join(comma_separated[:current_index]))) or \
                         not obj.is_finished(strip(used_delim.join(comma_separated[:current_index]))):
                         continue
-                    
                     if obj == ParseList:
                         parsed, new_warning = obj.parse(strip(used_delim.join(comma_separated[:current_index])), 
                                             primitive_type=primitive_type, depth=depth+1)

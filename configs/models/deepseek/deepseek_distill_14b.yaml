@@ -1,0 +1,8 @@
+model: deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+api: together
+max_tokens: 32000
+temperature: 0.6
+top_p: 0.95
+read_cost: 1.6
+write_cost: 1.6
+human_readable_id: DeepSeek-R1-Distill-14B

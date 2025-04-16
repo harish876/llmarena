@@ -14,7 +14,7 @@ def matches_models(model_name, models):
     return False
 
 def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False, models=None, 
-                output_folder="outputs", include_old=False):
+                output_folder="outputs", include_old=False, competition_config_folder="competition_configs"):
     """
     Loads configuration files recursively from `config_folder` and runs the appropriate
     command for each valid config file in parallel.
@@ -33,6 +33,7 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
         models (list): A list of model names to filter configs by. Can be a regex. If None, all configs are used.
         output_folder (str): The folder where model answers are stored.
         include_old (bool): If True, include old configs in the config_folder. Old configs are read from configs/exclude.txt
+        competition_config_folder (str): The folder where competition configs are stored.
     """
     # Ensure the log directory exists.
     log_dir = Path("logs")
@@ -42,7 +43,7 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
     configs = load_configs(config_folder, remove_extension=False)
 
     if not include_old:
-        exclude_file = Path("configs/exclude.txt")
+        exclude_file = Path(f"{config_folder}/exclude.txt")
         with exclude_file.open("r") as f:
             exclude_regexes = f.read().splitlines()
         
@@ -74,9 +75,9 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
             for cfg_path, api, model in valid_configs:
                 log_file = log_dir / f"{model.replace('/', '-')}.log"
                 # Build the command for this config.
-                cmd = f"uv run python scripts/run.py --comp {comp} --configs {cfg_path} --n {n} --output-folder {output_folder}"
+                cmd = f"uv run python scripts/run.py --comp {comp} --configs {cfg_path} --n {n} --output-folder {output_folder} --competition-config-folder {competition_config_folder}"
                 if skip_existing:
-                    cmd += " --skip_existing"
+                    cmd += " --skip-existing"
                 executor.submit(run_command, cmd, str(log_file))
         else:
             # For simul False, group config files by API.
@@ -90,7 +91,7 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
                 configs_str = " ".join(cfg_paths)
                 cmd = f"uv run python scripts/run.py --comp {comp} --configs {configs_str} --n {n} --output-folder {output_folder}"
                 if skip_existing:
-                    cmd += " --skip_existing"
+                    cmd += " --skip-existing"
                 executor.submit(run_command, cmd, str(log_file))
 
 
@@ -101,11 +102,13 @@ if __name__ == "__main__":
     parser.add_argument("--comp", type=str, required=True)
     parser.add_argument("--simul", action="store_true")
     parser.add_argument("--models", type=str, nargs="+", default=None)
-    parser.add_argument("--skip_existing", action="store_true")
+    parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--n", type=int, default=4)
     parser.add_argument("--output-folder", type=str, default="outputs")
-    parser.add_argument("--config-folder", type=str, default="configs")
+    parser.add_argument("--config-folder", type=str, default="configs/models")
+    parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
     parser.add_argument("--include-old", action="store_true")
     args = parser.parse_args()
     run_configs(args.config_folder, args.apis, args.comp,args.skip_existing, args.n, 
-                args.simul, args.models, args.output_folder)
+                args.simul, args.models, args.output_folder, include_old=args.include_old, 
+                competition_config_folder=args.competition_config_folder)
