@@ -188,6 +188,10 @@ def calculate_problem_results(problem, output_dir, messages_problem,
     if os.path.exists(output_file) and "anonymous_id" in json.load(open(output_file)):
         anonymous_id = json.load(open(output_file))["anonymous_id"]
     else:
+        if not os.path.exists("data/ids.txt"):
+            os.makedirs("data", exist_ok=True)
+            with open("data/ids.txt", "w") as f:
+                f.write("")
         all_ids = open("data/ids.txt", "r").read().split("\n")
         anonymous_id = uuid.uuid4().hex[:6]
         while anonymous_id in all_ids:

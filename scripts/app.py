@@ -22,7 +22,8 @@ args = parser.parse_args()
 
 def analyze_run(competition, models):
     configs, human_readable_ids = extract_existing_configs(competition, args.output_folder, args.config_folder, 
-                                                           args.competition_config_folder)
+                                                           args.competition_config_folder, 
+                                                           allow_non_existing_judgment=True)
     if models is not None:
         for config_path in list(human_readable_ids.keys()):
             if human_readable_ids[config_path] not in models:
@@ -118,6 +119,8 @@ app, rt = fast_app(live=False, hdrs=[
     }
     .problem-box {
         background-color: #c7d9ff;
+        white-space: pre-wrap;
+        tab-size: 4;
     }
     .solution-box {
         background-color: #ffd700;
@@ -131,9 +134,12 @@ app, rt = fast_app(live=False, hdrs=[
         padding: 0rem 0rem;
     }
     .answer-box {
+          white-space: pre-wrap;
+          tab-size: 4;
     }
     .details-box {
-        
+        white-space: pre-wrap;
+        tab-size: 4;
     }
     .correct {
         background-color: #c7ffcb;
@@ -169,7 +175,7 @@ title = f"Run Analysis: {args.comp}"
 def get_problem_stats(results, model, problem):
     if type(problem) == str:
         problem = int(problem)
-    res = results[model][problem] 
+    res = results[model][problem]
     corrects = res["correct"]
     warnings = res.get("warnings", [False] * len(corrects))
     if len(corrects) == 0:
@@ -385,8 +391,7 @@ def get(model: str, problem_name: str):
     #     reader = csv.reader(f)
     #     problems = [row for row in reader][1:]
 
-    with open(f"data/{args.comp}/problems/{problem_name}.tex", "r") as f:
-        problem_statement = f.read()
+    problem_statement = res["problem"]
 
     instances_html = []
     problem_idx = int(problem_name)

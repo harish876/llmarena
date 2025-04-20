@@ -47,7 +47,8 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path):
                 break
     return configs, human_readable_ids
 
-def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competition_configs, exclude_file_path=None):
+def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competition_configs, 
+                             exclude_file_path=None, allow_non_existing_judgment=False):
     with open(f"{root_dir_competition_configs}/{comp}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
     
@@ -64,7 +65,7 @@ def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competit
                 for file in os.listdir(os.path.join(root_dir, comp, config_path)):
                     with open(os.path.join(root_dir, comp, config_path, file), "r") as f:
                         data = json.load(f)
-                    if "judgment" not in data:
+                    if "judgment" not in data and not allow_non_existing_judgment:
                         logger.warning(f"Judgment not found in {file}")
                         exists = False
                         break

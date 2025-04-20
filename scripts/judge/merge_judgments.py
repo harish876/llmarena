@@ -58,7 +58,7 @@ for output in outputs:
                     judgment_part = judgment_content["details"][index_judgment]
                     is_found = True
                     judgment_part["max_points"] = grading_scheme_part["points"]
-                    assert judgment_part["points"] <= grading_scheme_part["points"], f"Judgment part with title {judgment_part['title']} has more points than allowed in grading scheme for file {judgment_file}"
+                    assert judgment_part["points"] <= grading_scheme_part["points"], f"Judgment part with title {judgment_part['title']} has more points than allowed in grading scheme for file {judgment_file}: {judgment_part["points"]} > {grading_scheme_part["points"]}"
                     judgment_part["grading_scheme_desc"] = grading_scheme_part["desc"]
                     if not is_found:
                         raise ValueError(f"Judgment part with title {grading_scheme_part['title']} not found in grading scheme for file {judgment_file}. You should include all points, even those that are 0.")

@@ -1,7 +1,0 @@
-model: o3-mini--medium
-api: openai
-max_tokens: 32000
-read_cost: 1.1
-write_cost: 4.4
-human_readable_id: o3-mini (medium)
-batch_processing: true

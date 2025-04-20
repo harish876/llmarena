@@ -1,7 +1,0 @@
-model: gpt-4o
-api: openai
-max_tokens: 16000
-read_cost: 2.5
-write_cost: 10
-human_readable_id: gpt-4o
-batch_processing: true

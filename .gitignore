@@ -25,3 +25,4 @@ latex/
 !usamo_report.pdf
 .gitlab-ci.yml
 data/
+!data/ids.txt

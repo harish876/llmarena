@@ -16,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument("--comp", type=str, help="Competition name", required=True)
     parser.add_argument("--output-folder", type=str, default="outputs", help="Output directory for the dataset")
     parser.add_argument("--configs-folder", type=str, default="configs/models", help="Directory containing the configs of the models")
-    parser.add_argument("--competition-configs-folder", type=str, default="data", help="Directory containing the configs")
+    parser.add_argument("--competition-configs-folder", type=str, default="configs/competitions", help="Directory containing the configs")
     parser.add_argument("--public", action="store_true", help="Make the dataset public (not advised, best to keep it private and manually share)")
 
     args = parser.parse_args()

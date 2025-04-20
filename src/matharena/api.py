@@ -48,8 +48,8 @@ class APIQuery:
         #     logger.info("Google Think model does not allow chat.")
         #     is_chat = False # think model cannot handle chat
         #     max_tokens_param = "max_output_tokens"
-        if ("o1" in model or "o3" in model) and api == "openai":
-            logger.info("Not using system messages for o1/o3 model.")
+        if ("o1" in model or "o3" in model or "o4" in model) and api == "openai":
+            logger.info("Not using system messages for o1/o3/o4 model.")
             no_system_messages = True # o1 model cannot handle system messages
             max_tokens_param = "max_completion_tokens"
             if "--" in model:
@@ -71,7 +71,8 @@ class APIQuery:
 
         self.model = model
         self.kwargs = kwargs
-        self.kwargs[max_tokens_param] = max_tokens
+        if max_tokens is not None:
+            self.kwargs[max_tokens_param] = max_tokens
         self.timeout = timeout
         self.max_retries = max_retries
         self.throw_error_on_failure = throw_error_on_failure
@@ -408,6 +409,9 @@ class APIQuery:
         
         json_response = response.json()
 
+        if "choices" not in json_response:
+            raise Exception(f"Error: {json_response}")
+
         if self.is_chat:
             output = json_response['choices'][0]['message']['content']
             if "reasoning_content" in json_response['choices'][0]['message'] and json_response['choices'][0]['message']['reasoning_content'] is not None:
@@ -451,10 +455,11 @@ class APIQuery:
 
         # if "think" in self.model:
         #     config['thinking_config'] = {'include_thoughts': True}
+        # config = None
         response = client.models.generate_content(
             model=self.model,
             contents=query,
-            # config=config,
+            **self.kwargs
         )
         return {
             "output": "\n\n".join([response.candidates[0].content.parts[i].text 
@@ -593,6 +598,9 @@ class APIQuery:
             image_type, base64_image = encode_image(image_path)
             query.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{base64_image}"}}]})
 
+        if any([kw in self.model for kw in ["o1", "o3", "o4"]]) and "temperature" in self.kwargs:
+            self.kwargs.pop("temperature")
+
         if not self.openai_responses:
             response = client.chat.completions.create(
                 model=self.model,
@@ -608,7 +616,6 @@ class APIQuery:
             output_tokens = response.usage.completion_tokens
             if self.base_url is not None and "api.x.ai" in self.base_url:
                 output_tokens += response.usage.completion_tokens_details.reasoning_tokens
-
         else:
             response = client.responses.create(
                 model=self.model,
@@ -616,7 +623,14 @@ class APIQuery:
                 timeout=self.timeout,
                 **self.kwargs
             )
-            output = response.output[-1].content[0].text
+            try:
+                output = response.output[-1].content[0].text
+            except Exception as e:
+                if response.incomplete_details.reason == "max_output_tokens":
+                    logger.info("Found incomplete response because of max output tokens. Setting output to the empty string information.")
+                    output = "<Empty response because model reached the maximum output tokens limit.>"
+                else:
+                    raise e
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
         return {

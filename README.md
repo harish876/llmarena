@@ -185,7 +185,7 @@ This will run models from the same API sequentially and from different APIs conc
 *Note:* For local vllm usage, ensure the vllm server is running as described above. Logs will be found in the `logs/` folder.
 
 ### Competitions Requiring Grading
-To set up grading of questions, convert the model answers to TeX files:
+To set up grading of questions, convert the model answers to TeX files: 
 ```bash
 uv run python scripts/judge/answers_to_latex.py --comp path/to/competition
 ```

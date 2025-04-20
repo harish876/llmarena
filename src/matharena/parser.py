@@ -110,6 +110,7 @@ def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True, l
     warning = max(warning, warning_new)
     if answer is not None or strict_parsing:
         return answer, warning
+    
     return extract_last_integer(text)
 
 def parse_answer(s: str, primitive_type: type = None):
@@ -146,6 +147,8 @@ def normalize_string(s):
     s = s.replace(r"\hline", "")
     s = s.replace(r"\vline", "")
     s = s.replace(r"\quad", " ")
+    s = s.replace("−", "-")
+    s = s.replace("\\displaystyle ", "")
     return strip(s)
 
 def remove_outer_brackets(s):
@@ -208,6 +211,7 @@ def replace_unicode(text: str) -> str:
     text = text.replace("\u221a", r"\sqrt") # these ones are for sure fine, no warning necessary
     text = text.replace("\u00d7", r"\cdot")
     text = text.replace("\u202f", r" ")
+    text = text.replace("\u2212", "-")
     return text, warning
 
 def remove_invalid_characters(text):
@@ -331,11 +335,7 @@ class ParsePrimitive(ParseObject):
         if bool(re.search(r'sqrt(\d+)', string)):
             string = re.sub(r'sqrt(\d+)', r'sqrt{\1}', string)
         try:
-            # NOTE: Right now we just ignore the matrix, this is not actually correct matrix parsing
             latex_str = string
-            latex_str = re.sub(r'\\begin\{pmatrix\}(.*?)\\end\{pmatrix\}', r'\1', latex_str, flags=re.DOTALL)
-            latex_str = re.sub(r'\\begin\{bmatrix\}(.*?)\\end\{bmatrix\}', r'\1', latex_str, flags=re.DOTALL)
-            latex_str = re.sub(r'\\begin\{matrix\}(.*?)\\end\{matrix\}', r'\1', latex_str, flags=re.DOTALL)
             for _ in range(5):
                 init_str = latex_str
                 latex_str = re.sub(r'\\*(?:dfrac|tfrac|frac)\{([^{}]*)\}\{([^{}]*)\}', r'(\1)/(\2)', latex_str)
@@ -373,22 +373,12 @@ class ParsePrimitive(ParseObject):
             latex_str = re.sub(r'\{([^{}]*)\}', lambda m: '[' + m.group(1).replace(',', ', ') + ']', 
                                latex_str)
 
-            locals = {
-                'binomial': sympy.binomial, 
-                'pi': sympy.pi, 
-                'E': sympy.E, 
-                'I': sympy.I
-            }
-            try:
-                string = sympy.sympify(latex_str, locals=locals)
-            except Exception as e:
-                # try removing the leftover \\
-                latex_str = latex_str.replace("\\", "")
-                try:
-                    string = sympy.sympify(latex_str, locals=locals)
-                except Exception as e:
-                    warning = max(warning, WarningType.MAJOR)
-                    return None, warning
+            string = sympy.sympify(latex_str, 
+                                   locals={'binomial': sympy.binomial, 
+                                           'pi': sympy.pi, 
+                                           'E': sympy.E, 
+                                           'I': sympy.I}
+                                )
         except Exception as e:
             # logger.warning(f"Couldn't parse {string} with standard LaTeX commands")
 
@@ -476,6 +466,7 @@ class ParseList(ParseObject):
                     if not obj.is_complete(strip(used_delim.join(comma_separated[:current_index]))) or \
                         not obj.is_finished(strip(used_delim.join(comma_separated[:current_index]))):
                         continue
+                    
                     if obj == ParseList:
                         parsed, new_warning = obj.parse(strip(used_delim.join(comma_separated[:current_index])), 
                                             primitive_type=primitive_type, depth=depth+1)
