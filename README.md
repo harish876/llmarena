@@ -247,7 +247,7 @@ If issues are found, delete the corresponding output file or fix the parser and 
 
 ## 🪵 Evaluation Logs
 
-You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://huggingface.co/datasets/MathArena](https://huggingface.co/datasets/MathArena).
+You can find logs from our evaluation containing full reasoning traces (if available) and solutions produced by the models at the following link: [https://huggingface.co/MathArena](https://huggingface.co/MathArena).
 
 ## 📚 Citation
 
