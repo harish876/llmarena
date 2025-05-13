@@ -3,6 +3,6 @@ api: openai
 max_tokens: 32000
 read_cost: 1.1
 write_cost: 4.4
-human_readable_id: o3-mini (low)
-batch_processing: true
+human_readable_id: o3-mini (low, second)
+batch_processing: false
 openai_responses: true

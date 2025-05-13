@@ -9,7 +9,7 @@ import sympy
 from typing import Any
 from enum import Enum
 from functools import total_ordering
-from matharena.parse_manual import manual_mapper
+from matharena.parse_manual import manual_mapper, complete_mapper
 
 @total_ordering
 class WarningType(Enum):
@@ -68,23 +68,65 @@ def find_last_boxed_content(text: str, list_answer: bool = False) -> Optional[st
 
 def extract_boxed_answer(text: str, list_answer: bool = False) -> Optional[str]:
     answer, warning = find_last_boxed_content(text, list_answer)
-    if answer is not None and "=" in answer:
-        answer = answer.split("=")[-1]
     if answer is not None:
         return answer, warning
     else:
         return None, warning
 
 
+
+def replace_and_or(s: str) -> str:
+    """
+    1) If 'and/or' (or their \\text{} forms) is NOT right next to a comma
+       (ignoring spaces) → replace it by a single ','.
+    2) Otherwise (comma already on at least one side) → delete it.
+    """
+    TOKEN = re.compile(
+        r"""
+        (?:\\text\s*\{\s*)?      # optional '\text{' and any leading blanks
+        (and|or)                 # the word itself
+        (?:\s*\})?               # optional closing '}' with any blanks
+        """,
+        re.I | re.VERBOSE,
+    )
+    # We build a fresh output string piece-by-piece so that each check
+    # uses the **current** comma layout, not the one from the original text.
+    out, idx = [], 0
+    for m in TOKEN.finditer(s):
+        start, end = m.span()
+        # copy text *before* the token
+        out.append(s[idx:start])
+
+        # look to the left of the token, skipping blanks
+        j = start - 1
+        while j >= 0 and s[j].isspace():
+            j -= 1
+        comma_left = (j >= 0 and s[j] == ',')
+
+        # look to the right of the token, skipping blanks
+        k = end
+        while k < len(s) and s[k].isspace():
+            k += 1
+        comma_right = (k < len(s) and s[k] == ',')
+
+        # choose replacement
+        out.append('' if (comma_left or comma_right) else ',')
+        idx = end                     # advance cursor
+
+    out.append(s[idx:])               # tail of string
+    return ''.join(out)
+
 def extract_boxed_answer_parse(text: str, parse: bool = True, list_answer: bool = False) -> Optional[int]:
     answer, warning = extract_boxed_answer(text, list_answer)
     if answer is not None:
+        if answer.count("=") > 1:
+            warning = max(warning, WarningType.MAJOR) # this is a major warning, we should not have more than one "="
         try:
             return sympy.Integer(int(answer)), warning
         except:
             # logger.info(f"Could not parse answer {answer} as integer")
             if parse:
-                parsed_answer, warning = parse_answer(answer)
+                parsed_answer, warning = parse_answer(answer, list_answer=list_answer)
                 return parsed_answer, warning
             return answer, warning
     return None, WarningType.MAJOR
@@ -103,7 +145,13 @@ def extract_last_integer(text: str) -> Optional[int]:
 def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True, list_answer: bool = False):
     if text is None:
         return None, WarningType.MAJOR
+    warning_old = WarningType.NONE
+    if text in complete_mapper:
+        logger.warning(f"Applying complete mapper to {text}")
+        text = complete_mapper[text]
+        warning_old = WarningType.MAJOR
     text, warning = replace_unicode(text)
+    warning = max(warning, warning_old)
     answer, warning_new = extract_boxed_answer_parse(text, parse, list_answer)
     if isinstance(answer, AnswerList) and len(answer.answers) == 1:
         answer = answer.answers[0]
@@ -113,14 +161,14 @@ def extract_answer(text: str, strict_parsing: bool = True, parse: bool = True, l
     
     return extract_last_integer(text)
 
-def parse_answer(s: str, primitive_type: type = None):
+def parse_answer(s: str, primitive_type: type = None, list_answer: bool = False):
     warning = WarningType.NONE
     if s in manual_mapper:
         logger.warning(f"Applying manual parsing to {s}")
         s = manual_mapper[s]
         warning = WarningType.MAJOR
     s = remove_invalid_characters(s)
-    s = remove_outer_brackets(normalize_string(s))
+    s = remove_outer_brackets(normalize_string(s, list_answer))
     output, warning_new = ParseList.parse("(" + s + ")", primitive_type=primitive_type)
     warning = max(warning, warning_new)
     if output is None:
@@ -133,10 +181,11 @@ def parse_answer(s: str, primitive_type: type = None):
         output = AnswerList(output)
     return output, warning
 
-def normalize_string(s):
+def normalize_string(s, list_answer=False):
     s = s.replace(r"\left", "").replace(r"\right", "")
     s = s.replace(r"\Bigl", "").replace(r"\Bigr", "")
     s = s.replace(r"\bigl", "").replace(r"\bigr", "")
+    s = s.replace(r"\Big", "").replace(r"\big", "").replace(r"\Large", "").replace(r"\large", "")
     s = remove_aligns(s)
     s = s.replace("[", "(")
     s = s.replace("]", ")")
@@ -148,7 +197,40 @@ def normalize_string(s):
     s = s.replace(r"\vline", "")
     s = s.replace(r"\quad", " ")
     s = s.replace("−", "-")
-    s = s.replace("\\displaystyle ", "")
+    s = s.replace("–", "-")
+    s = s.replace("·", " \\cdot ")
+    s = s.replace("^\\circ", " ")
+    s = s.replace("^{\\circ}", " ")
+    s = s.replace("\\displaystyle", "")
+    # remove \\begin{anything} and \\end{anything}
+    if s.endswith("."):
+        s = s[:-1]
+
+    if list_answer and s is not None:
+        s = replace_and_or(s)
+
+    if not list_answer:
+        # replace something of the type integer,integer with integerinteger
+        s = re.sub(r"(\d+),(\d+)", r"\1\2", s)
+    if list_answer:
+        s = s.replace(";", ",")
+    # if we see \sqrt 123ea pi\frac -> \sqrt{123ea}pi\frac
+    if "\\sqrt " in s:
+        s = re.sub(r"\\sqrt\s*([^\s{}]*)", r"\\sqrt{\1}", s)
+    # remove everything that appears within \text{...}
+    s = re.sub(r"\\text\{.*?\}", "", s)
+    # replace \mathrm{...} with ...
+    s = re.sub(r"\\mathrm\{(.*?)\}", r" \1 ", s)
+
+    if "=" in s:
+        s = s.split("=")[-1]
+    if r"\in" in s and list_answer:
+        s = s.split(r"\in")[-1]
+
+    if "\\approx" in s:
+        s = s.split("\\approx")[0]
+        if s.endswith("("): # in case it was put in brackets
+            s = s[:-1]
     return strip(s)
 
 def remove_outer_brackets(s):
@@ -218,7 +300,7 @@ def remove_invalid_characters(text):
     text = re.sub(r'\\;', '', text)
     text = re.sub(r'\\:', '', text)
     text = re.sub(r'\\,', '', text)
-    
+    text = re.sub(r'\\!', '', text)
     return text
 
 def strip(s: str):
@@ -245,11 +327,11 @@ def check_answers(ans1, ans2):
             or not (hasattr(ans2, 'equals') and callable(ans2.equals)):
             # do approximate equal here
             if isinstance(ans1, str) or isinstance(ans2, str):
-                return ans1 == ans2
+                return bool(ans1 == ans2)
             if abs(ans1 - ans2) < 10 ** -10:
                 return True 
             return False
-        return ans1.equals(ans2)
+        return bool(ans1.equals(ans2))
     except Exception as e:
         return False
 
@@ -334,6 +416,8 @@ class ParsePrimitive(ParseObject):
         # Expression
         if bool(re.search(r'sqrt(\d+)', string)):
             string = re.sub(r'sqrt(\d+)', r'sqrt{\1}', string)
+        if bool(re.search(r"frac(\d)", string)):
+            string = re.sub(r'frac(\d)', r'frac{\1}', string)
         try:
             latex_str = string
             for _ in range(5):
@@ -345,7 +429,7 @@ class ParsePrimitive(ParseObject):
   
                 latex_str = latex_str.replace('^', '**')
                 latex_str = latex_str.replace('\\cdot', '*').replace('\\times', '*')
-                latex_str = latex_str.replace('\\pi', 'pi').replace('\\e', 'E').replace('\\i', 'I')
+                latex_str = latex_str.replace('\\pi', ' pi ').replace('\\e', ' E ').replace('\\i', ' I ').replace(" i ", " I ")
 
                 if init_str == latex_str:
                     break
@@ -361,7 +445,7 @@ class ParsePrimitive(ParseObject):
 
                 latex_str = latex_str.replace('^', '**')
                 latex_str = latex_str.replace('\\cdot', '*').replace('\\times', '*')
-                latex_str = latex_str.replace('\\pi', 'pi').replace('\\e', 'E').replace('\\i', 'I')
+                latex_str = latex_str.replace('\\pi', ' pi ').replace('\\e', ' E ').replace('\\i', ' I ').replace(" i ", " I ")
                 if init_str == latex_str:
                     break
             
@@ -376,9 +460,11 @@ class ParsePrimitive(ParseObject):
             string = sympy.sympify(latex_str, 
                                    locals={'binomial': sympy.binomial, 
                                            'pi': sympy.pi, 
-                                           'E': sympy.E, 
+                                           'E': sympy.E,
+                                           'e': sympy.E,
                                            'I': sympy.I}
                                 )
+
         except Exception as e:
             # logger.warning(f"Couldn't parse {string} with standard LaTeX commands")
 
@@ -387,10 +473,15 @@ class ParsePrimitive(ParseObject):
                 if "=" in string_no_eq:
                     # rfind is used to remove the last occurence of "="
                     string_no_eq = string_no_eq[string_no_eq.rfind("=")+1:]
-                float_val = float(N(latex2sympy_fixed(string_no_eq), 101))
-                if float_val.is_integer() or float("inf") == float_val or float("-inf") == float_val:
-                    return int(N(latex2sympy_fixed(string_no_eq), 50001)), warning # important for large ints
-                return float_val, warning
+                output_val = latex2sympy_fixed(string_no_eq)
+
+                try:
+                    float_val = float(N(output_val, 101))
+                    if float_val.is_integer() or float("inf") == float_val or float("-inf") == float_val:
+                        return int(N(latex2sympy_fixed(string_no_eq), 50001)), warning # important for large ints
+                    return float_val, warning
+                except:
+                    return output_val, warning
             except Exception as e:
                 logger.warning(f"Error: Custom parsing error {e}, {string_no_eq}")
                 warning = max(warning, WarningType.MAJOR)

@@ -3,5 +3,5 @@ default_temperature: 0.6
 default_max_tokens: 8000
 strict_parsing: false
 n_problems: 15
-date: "2024-02-07"
-dataset_path: MathArena/aime_2024_II
+date: "2024-02-01"
+dataset_path: MathArena/aime_2023_I

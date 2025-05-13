@@ -64,7 +64,7 @@ class APIQuery:
         if api not in ["anthropic", "openai"] and batch_processing:
             logger.warning("Batch processing is only supported for the Anthropic API and OpenAI API.")
             batch_processing = False
-        if openai_responses:
+        if openai_responses and not batch_processing:
             max_tokens_param = "max_output_tokens"
 
         self.kwarg_remover(api, model, kwargs)
@@ -89,7 +89,7 @@ class APIQuery:
         if max_tokens is not None:
             self.max_tokens_param = max_tokens_param
         if reasoning_effort is not None:
-            if not self.openai_responses:
+            if not self.openai_responses or self.batch_processing:
                 self.kwargs["reasoning_effort"] = reasoning_effort
             else:
                 self.kwargs["reasoning"] = {"effort": reasoning_effort}
@@ -101,6 +101,8 @@ class APIQuery:
         self.initialize_api_keys()
 
     def kwarg_remover(self, api, model, kwargs):
+        if any([kw in model for kw in ["o1", "o3", "o4"]]) and "temperature" in kwargs:
+            del kwargs["temperature"]
         for kwarg in ["top_p", "top_k", "temperature"]:
             if kwarg in kwargs and kwargs[kwarg] is None:
                 del kwargs[kwarg]
@@ -142,6 +144,9 @@ class APIQuery:
         elif self.api == "openrouter":
             self.api_key = os.getenv("OPENROUTER_API_KEY")
             self.base_url = "https://openrouter.ai/api/v1"
+            if "via_openai" in self.kwargs:
+                del self.kwargs["via_openai"]
+                self.api = "openai"
         elif self.api == "fireworks":
             self.api_key = os.getenv("FIREWORKS_API_KEY")
             self.base_url = "https://api.fireworks.ai/inference/v1"
@@ -205,6 +210,12 @@ class APIQuery:
             else:
                 processed_results = self.anthropic_batch_processing(queries_actual)
             for idx, result in enumerate(processed_results):
+                if result is None:
+                    result = {
+                        "output": "",
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                    }
                 detailed_cost = {
                     "cost": self.get_cost(result),
                     "input_tokens": result["input_tokens"],
@@ -220,6 +231,12 @@ class APIQuery:
                 for future in tqdm(as_completed(future_to_index), total=len(future_to_index)):
                     idx = future_to_index[future]
                     result = future.result()
+                    if result is None:
+                        result = {
+                            "output": "",
+                            "input_tokens": 0,
+                            "output_tokens": 0,
+                        }
                     detailed_cost = {
                         "cost": self.get_cost(result),
                         "input_tokens": result["input_tokens"],
@@ -461,6 +478,9 @@ class APIQuery:
             contents=query,
             **self.kwargs
         )
+        # Google API being the Google API...
+        assert response.usage_metadata.prompt_token_count is not None
+        assert response.usage_metadata.candidates_token_count is not None
         return {
             "output": "\n\n".join([response.candidates[0].content.parts[i].text 
                                    for i in range(len(response.candidates[0].content.parts))]),
@@ -550,9 +570,34 @@ class APIQuery:
                 break
             time.sleep(10)
         
+        outputs = [None for _ in range(len(queries))]
+        repeat_indices = []
+
+        # if batch.error_file_id is not None:
+        #     while True:
+        #         try:
+        #             error_response = client.files.content(file_id=batch.error_file_id)
+        #             break
+        #         except Exception as e:
+        #             logger.error(f"Error connecting to OpenAI: {e}. Retrying in 10 seconds.")
+        #             time.sleep(10)
+        #             continue
+        #     for line in error_response.iter_lines():
+        #         logger.error(line)
+        #         json_line = json.loads(line)
+        #         if json_line.get("error", 1) is None:
+        #             index = int(json_line["custom_id"].split("-")[-1])
+        #             outputs[index] = {
+        #                 "output": "<Empty response because model reached the maximum output tokens limit.>",
+        #                 "input_tokens": 0,
+        #                 "output_tokens": 0,
+        #             }
+
+        if batch.output_file_id is None:
+            return outputs
         while True:
             try:
-                file_response = client.files.content(batch.output_file_id)
+                file_response = client.files.content(file_id=batch.output_file_id)
                 break
             except Exception as e:
                 logger.error(f"Error connecting to OpenAI: {e}. Retrying in 10 seconds.")
@@ -562,9 +607,6 @@ class APIQuery:
         json_response = []
         for line in file_response.iter_lines():
             json_response.append(json.loads(line))
-
-        outputs = [None for _ in range(len(queries))]
-        repeat_indices = []
 
         for result in json_response:
             index = int(result["custom_id"].split("-")[-1])
@@ -581,6 +623,10 @@ class APIQuery:
                 except Exception as e:
                     logger.error(f"Error: {e}")
                     repeat_indices.append(index)
+        
+        for i in range(len(outputs)):
+            if outputs[i] is None:
+                repeat_indices.append(i)
         if len(repeat_indices) > 0:
             logger.info(f"Repeating {len(repeat_indices)} queries.")
             repeat_queries = [queries[i] for i in repeat_indices]
@@ -598,9 +644,6 @@ class APIQuery:
             image_type, base64_image = encode_image(image_path)
             query.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/{image_type};base64,{base64_image}"}}]})
 
-        if any([kw in self.model for kw in ["o1", "o3", "o4"]]) and "temperature" in self.kwargs:
-            self.kwargs.pop("temperature")
-
         if not self.openai_responses:
             response = client.chat.completions.create(
                 model=self.model,
@@ -609,6 +652,8 @@ class APIQuery:
                 **self.kwargs
             )
             output = response.choices[0].message.content
+            if output is None: # in case max token limit reached
+                output = ""
             if hasattr(response.choices[0].message, "reasoning_content") and \
                 response.choices[0].message.reasoning_content is not None:
                 output = response.choices[0].message.reasoning_content + "\n\n" + output

@@ -25,3 +25,4 @@ latex/
 .gitlab-ci.yml
 data/
 !data/ids.txt
+scripts/paper

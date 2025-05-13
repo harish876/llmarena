@@ -1,6 +1,6 @@
-openai/gpt-4o.yaml
 openai/o1-pro.yaml
-qwen/qwq-preview.yaml
-anthropic/claude-35.yaml
-deepseek/deepseek_distill_1.5b.yaml
-deepseek/deepseek_v3.yaml
+llama4/*
+other/*
+xai/*
+gemini/gemini-pro-2.0.yaml
+openai/o3-mini--low-many.yaml

@@ -19,7 +19,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    folder = os.path.join(args.data_folder, args.comp)
+    folder = os.path.join("data", args.comp)
 
     competition_config = yaml.safe_load(open(os.path.join(args.competition_configs_folder, args.comp + ".yaml"), "r"))
 

@@ -14,7 +14,8 @@ def matches_models(model_name, models):
     return False
 
 def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False, models=None, 
-                output_folder="outputs", include_old=False, competition_config_folder="competition_configs"):
+                output_folder="outputs", include_old=False, logs_folder="logs",
+                competition_config_folder="competition_configs"):
     """
     Loads configuration files recursively from `config_folder` and runs the appropriate
     command for each valid config file in parallel.
@@ -36,7 +37,7 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
         competition_config_folder (str): The folder where competition configs are stored.
     """
     # Ensure the log directory exists.
-    log_dir = Path("logs")
+    log_dir = Path(logs_folder)
     log_dir.mkdir(exist_ok=True)
 
     # Convert the config_folder to a Path object.
@@ -108,7 +109,9 @@ if __name__ == "__main__":
     parser.add_argument("--config-folder", type=str, default="configs/models")
     parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
     parser.add_argument("--include-old", action="store_true")
+    parser.add_argument("--logs-folder", type=str, default="logs")
     args = parser.parse_args()
     run_configs(args.config_folder, args.apis, args.comp,args.skip_existing, args.n, 
                 args.simul, args.models, args.output_folder, include_old=args.include_old, 
-                competition_config_folder=args.competition_config_folder)
+                competition_config_folder=args.competition_config_folder, 
+                logs_folder=args.logs_folder)

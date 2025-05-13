@@ -1,0 +1,10 @@
+model: microsoft/phi-4-reasoning-plus:free
+api: openrouter
+max_tokens: 31500
+temperature: 0.8
+top_p: 0.95
+concurrent_requests: 20
+read_cost: 0.07
+write_cost: 0.35
+human_readable_id: Phi-4-reasoning-plus
+date: "2025-05-01"

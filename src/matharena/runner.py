@@ -14,6 +14,16 @@ from matharena.parser import extract_answer, parse_answer, check_answers, Warnin
 from matharena.possible_issues import check_number_proximity_any_order, check_all_numbers, check_output_length
 
 
+def validate_messages(messages):
+    if not any([message['role'] == 'assistant' for message in messages]):
+        return False
+    
+    for message in messages:
+        if message['role'] == 'assistant' and len(message['content']) == 0:
+            return False
+        
+    return True
+
 def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs", 
         competition_config_folder="competition_configs"):
     model = model_config["model"]
@@ -46,7 +56,29 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 
     final_answer_comp = competition_config.get("final_answer", True)
 
-    problems = load_dataset(competition_config["dataset_path"], split="train").to_list()
+    if os.path.exists(competition_config["dataset_path"]):
+        answers_path = os.path.join(competition_config["dataset_path"], "answers.csv")
+        type_path = os.path.join(competition_config["dataset_path"], "problem_types.csv")
+        problems = []
+        problem_types = None
+
+        if os.path.exists(type_path):
+            with open(type_path, "r") as f:
+                problem_types = csv.DictReader(f)
+                problem_types = {int(row["id"]): row["type"] for row in problem_types}
+                for problem_id in problem_types:
+                    problem_types[problem_id] = problem_types[problem_id].replace('"', "").replace("[", "").replace("]", "").split(',')
+
+        with open(answers_path, "r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                id = row["id"]
+                with open(os.path.join(competition_config["dataset_path"], "problems", f"{id}.tex"), "r") as f:
+                    problem = f.read()
+                problems.append({"problem_idx": int(id), "problem": problem, "answer": row["answer"], "type": problem_types[int(id)] if problem_types is not None else None})
+        
+    else:
+        problems = load_dataset(competition_config["dataset_path"], split="train").to_list()
 
     # sort by problem_idx
     problems = sorted(problems, key=lambda x: x["problem_idx"])
@@ -73,21 +105,22 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
             else:
                 cost = data_file["cost"]
                 detailed_costs = [{"cost": cost["cost"] if i == 0 else 0, 
-                                   "input_tokens": cost["input_tokens"] if i == 0 else 0, 
-                                   "output_tokens": cost["output_tokens"] if i == 0 else 0} 
-                                   for i in range(len(messages))]
+                                    "input_tokens": cost["input_tokens"] if i == 0 else 0, 
+                                    "output_tokens": cost["output_tokens"] if i == 0 else 0} 
+                                    for i in range(len(messages))]
             detailed_costs = [detailed_costs_one for detailed_costs_one, messages_one in 
-                              zip(detailed_costs, messages) if len(messages_one[-1]["content"]) > 0]
+                                zip(detailed_costs, messages) if validate_messages(messages_one)
+                                ]
             messages = [
-                messages_one for messages_one in messages if len(messages_one[-1]["content"]) > 0
+                messages_one for messages_one in messages if validate_messages(messages_one)
             ]
             detailed_costs_per_problem[i] = detailed_costs
             all_messages_per_problem[i] = messages
             logger.info(f"Skipping problem: {problem_id} ({len(messages)} times)")
             if len(messages) == n:
-                calculate_problem_results(problem, output_dir, messages,
-                                            detailed_costs, i, competition_config["strict_parsing"], 
-                                            final_answer=final_answer_comp)
+                calculate_problem_results(model_config, problem, output_dir, messages,
+                                        detailed_costs, i, competition_config["strict_parsing"], 
+                                        final_answer=final_answer_comp)
                 continue
 
         problem_statement = problem["problem"]
@@ -118,20 +151,22 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
 
         # check if the whole problem is finished
         if len(all_messages_per_problem[problem_idx]) == n:
-            calculate_problem_results(problem, output_dir, 
+            calculate_problem_results(model_config, problem, output_dir, 
                                       all_messages_per_problem[problem_idx], 
                                       detailed_costs_per_problem[problem_idx], 
                                       problem_idx, competition_config["strict_parsing"], 
                                       final_answer=final_answer_comp)
 
-def calculate_problem_results(problem, output_dir, messages_problem, 
+def calculate_problem_results(model_config, problem, output_dir, messages_problem, 
                               costs_problem, problem_idx, strict_parsing, 
                               final_answer=True):
     problem_id = problem["problem_idx"]
 
     problem_statement = problem["problem"]
+    list_answer = "," in str(problem["answer"])
+
     if final_answer:
-        gold_answer, _ = parse_answer(str(problem["answer"]))
+        gold_answer, _ = parse_answer(str(problem["answer"]), list_answer=list_answer)
     else:
         gold_answer = None
     output_file = os.path.join(output_dir, f"{problem_id}.json")
@@ -139,24 +174,19 @@ def calculate_problem_results(problem, output_dir, messages_problem,
     answers = []
     warnings = []
     corrects = []
-    try:
-        string_answer = str(model_answer)
-    except:
-        string_answer = "None"
-        warning = WarningType.MAJOR
     for j in range(n):
         if final_answer:
             model_answer = messages_problem[j][-1]["content"]
-            list_answer = "," in str(problem["answer"])
             model_answer, warning = extract_answer(model_answer, strict_parsing, True, list_answer)
             is_correct = check_answers(model_answer, gold_answer)
+
             if not is_correct and check_output_length(costs_problem[j]["output_tokens"]):
                 logger.warning(f"Model output length {costs_problem[j]['output_tokens']} is of the form 10**k * 2**n. This might indicate it hit the token limit. Problem: {problem_id}, idx: {j}")
                 warning = WarningType.MINOR # model just didnt have time, any error could have been caused by this
             elif not is_correct and check_all_numbers(messages_problem[j][-1]["content"], str(problem["answer"])):
                 logger.warning(f"Model answer: {model_answer} is not equal to gold answer: {gold_answer} even though model output contains the gold answer. Problem: {problem_id}, idx: {j}")
                 warning = max(warning, WarningType.POSSIBLE)
-            elif not is_correct and check_number_proximity_any_order(str(gold_answer), string_answer):
+            elif not is_correct and check_number_proximity_any_order(str(problem["answer"]), messages_problem[j][-1]["content"]):
                 logger.warning(f"Numbers appearing in gold answer appear close together in model answer, but answer was incorrect. Problem: {problem_id}, idx: {j}")
                 warning = max(warning, WarningType.POSSIBLE)
             elif len(messages_problem[j][-1]["content"]) == 0:
@@ -179,11 +209,14 @@ def calculate_problem_results(problem, output_dir, messages_problem,
         pass_at_1 = sum(x == gold_answer for x in answers)/n
     else:
         pass_at_1 = 0
+    for i in range(len(costs_problem)):
+        costs_problem[i]["cost"] = model_config["read_cost"] * costs_problem[i]["input_tokens"] + model_config["write_cost"] * costs_problem[i]["output_tokens"]
+        costs_problem[i]["cost"] /= 10 ** 6
     cost = {
-                "cost": sum([d["cost"] for d in costs_problem]),
-                "input_tokens": sum([d["input_tokens"] for d in costs_problem]),
-                "output_tokens": sum([d["output_tokens"] for d in costs_problem]),
-            }
+        "cost": sum([d["cost"] for d in costs_problem]),
+        "input_tokens": sum([d["input_tokens"] for d in costs_problem]),
+        "output_tokens": sum([d["output_tokens"] for d in costs_problem]),
+    }
     
     if os.path.exists(output_file) and "anonymous_id" in json.load(open(output_file)):
         anonymous_id = json.load(open(output_file))["anonymous_id"]
@@ -204,6 +237,7 @@ def calculate_problem_results(problem, output_dir, messages_problem,
                     "idx": problem_idx,
                     "problem": problem_statement,
                     "gold_answer": str(problem.get("answer", "None")),
+                    "types": problem.get("type", "None"),
                     "messages": messages_problem, 
                     "answers": [convert_answer(answer) for answer in answers],
                     "correct": corrects,

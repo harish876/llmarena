@@ -109,7 +109,7 @@ vllm serve [[model_name]] --dtype auto --api-key token-abc123
 ### Uploading answers to HuggingFace
 You can upload the model answers to HuggingFace as follows:
 ```bash
-uv run python scripts/upload_outputs.py --org your_org --repo-name your_repo_name --comp path/to/competition
+uv run python scripts/curation/upload_outputs.py --org your_org --repo-name your_repo_name --comp path/to/competition
 ```
 This will upload all model answers to a private repository named `your_org/your_repo_name`. `path/to/competition` is the relative path from the `configs/competition` folder to the competition folder (excluding the `.yaml` extension).
 

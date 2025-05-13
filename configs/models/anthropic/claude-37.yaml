@@ -9,6 +9,6 @@ thinking:
   budget_tokens: 32000
 read_cost: 3
 write_cost: 15
-batch_processing: false
+batch_processing: true
 human_readable_id: Claude-3.7-Sonnet (Think)
 date: "2025-02-19"
