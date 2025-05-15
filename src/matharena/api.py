@@ -480,12 +480,12 @@ class APIQuery:
         )
         # Google API being the Google API...
         assert response.usage_metadata.prompt_token_count is not None
-        assert response.usage_metadata.candidates_token_count is not None
+        assert response.usage_metadata.total_token_count is not None
         return {
             "output": "\n\n".join([response.candidates[0].content.parts[i].text 
                                    for i in range(len(response.candidates[0].content.parts))]),
             "input_tokens": response.usage_metadata.prompt_token_count,
-            "output_tokens": response.usage_metadata.candidates_token_count,
+            "output_tokens": response.usage_metadata.total_token_count,
         }
 
     def together_query(self, query):

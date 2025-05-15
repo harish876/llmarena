@@ -10,3 +10,4 @@ concurrent_requests: 5
 read_cost: 0.1
 write_cost: 0.4
 human_readable_id: gemini-2.0-flash
+date: "2025-02-05"

@@ -20,7 +20,7 @@ def load_configs(root_dir, remove_extension=True):
     for file_path in yaml_files:
         with file_path.open('r') as f:
             config_data = yaml.safe_load(f)
-        file_path_remove_config = str(file_path).replace(str(root) + "/", "")
+        file_path_remove_config = str(file_path).replace('\\','/').replace(str(root).replace('\\','/') + "/", "")
         if remove_extension:
             file_path_remove_config = file_path_remove_config.replace(".yaml", "").replace(".yml", "")
         try:

@@ -25,7 +25,7 @@ def validate_messages(messages):
     return True
 
 def run(model_config, config_path, competition, skip_existing=False, output_folder="outputs", 
-        competition_config_folder="competition_configs"):
+        competition_config_folder="competition_configs", skip_all=False):
     model = model_config["model"]
     n = model_config["n"]
     api = model_config["api"]
@@ -55,13 +55,12 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
     prompt_template = f"{competition_config['instruction']}\n\n" + "{problem_statement}"
 
     final_answer_comp = competition_config.get("final_answer", True)
-
+    problem_types = None
     if os.path.exists(competition_config["dataset_path"]):
         answers_path = os.path.join(competition_config["dataset_path"], "answers.csv")
         type_path = os.path.join(competition_config["dataset_path"], "problem_types.csv")
         problems = []
-        problem_types = None
-
+        
         if os.path.exists(type_path):
             with open(type_path, "r") as f:
                 problem_types = csv.DictReader(f)
@@ -75,8 +74,8 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
                 id = row["id"]
                 with open(os.path.join(competition_config["dataset_path"], "problems", f"{id}.tex"), "r") as f:
                     problem = f.read()
-                problems.append({"problem_idx": int(id), "problem": problem, "answer": row["answer"], "type": problem_types[int(id)] if problem_types is not None else None})
-        
+                problems.append({"problem_idx": int(id), "problem": problem, "answer": row["answer"], "problem_type": problem_types[int(id)] if problem_types is not None else None})
+
     else:
         problems = load_dataset(competition_config["dataset_path"], split="train").to_list()
 
@@ -109,15 +108,15 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
                                     "output_tokens": cost["output_tokens"] if i == 0 else 0} 
                                     for i in range(len(messages))]
             detailed_costs = [detailed_costs_one for detailed_costs_one, messages_one in 
-                                zip(detailed_costs, messages) if validate_messages(messages_one)
+                                zip(detailed_costs, messages) if validate_messages(messages_one) or skip_all
                                 ]
             messages = [
-                messages_one for messages_one in messages if validate_messages(messages_one)
+                messages_one for messages_one in messages if validate_messages(messages_one) or skip_all
             ]
             detailed_costs_per_problem[i] = detailed_costs
             all_messages_per_problem[i] = messages
             logger.info(f"Skipping problem: {problem_id} ({len(messages)} times)")
-            if len(messages) == n:
+            if len(messages) == n or skip_all:
                 calculate_problem_results(model_config, problem, output_dir, messages,
                                         detailed_costs, i, competition_config["strict_parsing"], 
                                         final_answer=final_answer_comp)
@@ -128,11 +127,11 @@ def run(model_config, config_path, competition, skip_existing=False, output_fold
         for _ in range(n - len(all_messages_per_problem[i])):
             batch_idx_to_problem_idx[len(batch_prompts)] = i
             batch_prompts.append((problem_prompt, None))
-
     logger.info("Collected all queries, now running")
 
     if len(batch_prompts) == 0:
         return
+    
     api = APIQuery(
         model=model, 
         api=api,
@@ -237,7 +236,7 @@ def calculate_problem_results(model_config, problem, output_dir, messages_proble
                     "idx": problem_idx,
                     "problem": problem_statement,
                     "gold_answer": str(problem.get("answer", "None")),
-                    "types": problem.get("type", "None"),
+                    "types": problem.get("problem_type", "None"),
                     "messages": messages_problem, 
                     "answers": [convert_answer(answer) for answer in answers],
                     "correct": corrects,

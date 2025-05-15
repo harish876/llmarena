@@ -26,3 +26,5 @@ latex/
 data/
 !data/ids.txt
 scripts/paper
+paper_data/
+parser_judge_logs/

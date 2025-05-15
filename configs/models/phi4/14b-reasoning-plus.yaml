@@ -7,4 +7,3 @@ concurrent_requests: 20
 read_cost: 0.07
 write_cost: 0.35
 human_readable_id: Phi-4-reasoning-plus
-date: "2025-05-01"

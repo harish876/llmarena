@@ -6,6 +6,8 @@ from matharena.configs import load_configs
 from loguru import logger
 import yaml
 
+def get_as_list(string):
+    return string.replace('"', "").replace("[", "").replace("]", "").split(',')
 
 
 if __name__ == "__main__":
@@ -27,6 +29,10 @@ if __name__ == "__main__":
 
     if competition_config.get("final_answer", True):
         answers = pd.read_csv(os.path.join(folder, "answers.csv"))
+        if os.path.exists(os.path.join(folder, "problem_types.csv")):
+            problem_types = pd.read_csv(os.path.join(folder, "problem_types.csv"))
+            problem_types["type"] = problem_types["type"].apply(get_as_list)
+            answers = answers.merge(problem_types, on="id")
         ids = list(answers["id"])
     else:
         answers = json.load(open(os.path.join(folder, "grading_scheme.json"), "r"))
@@ -39,6 +45,8 @@ if __name__ == "__main__":
         data_dict["problem"] = open(problem_file, "r").read()
         if competition_config.get("final_answer", True):
             data_dict["answer"] = answers.iloc[i]["answer"]
+            if "type" in answers.columns:
+                data_dict["problem_type"] = answers.iloc[i]["type"]
         else:
             data_dict["points"] = answers[i]["points"]
             data_dict["grading_scheme"] = answers[i]["scheme"]

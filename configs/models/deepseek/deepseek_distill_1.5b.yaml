@@ -6,3 +6,4 @@ top_p: 0.95
 read_cost: 0.18
 write_cost: 0.18
 human_readable_id: DeepSeek-R1-Distill-1.5B
+date: "2025-01-21"

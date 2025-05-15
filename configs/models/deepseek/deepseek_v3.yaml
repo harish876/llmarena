@@ -6,3 +6,4 @@ top_p: 0.95
 read_cost: 1.25
 write_cost: 1.25
 human_readable_id: DeepSeek-V3
+date: "2024-12-27"

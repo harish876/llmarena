@@ -89,8 +89,10 @@ def run_configs(config_folder, apis, comp, skip_existing=False, n=4, simul=False
             # For each API group, build and run a single command.
             for api, cfg_paths in api_groups.items():
                 log_file = log_dir / f"{api}.log"
-                configs_str = " ".join(cfg_paths)
+                configs_str = " ".join([path.replace("configs\\models\\", "") for path in cfg_paths])
                 cmd = f"uv run python scripts/run.py --comp {comp} --configs {configs_str} --n {n} --output-folder {output_folder}"
+                print(cmd)
+                exit()
                 if skip_existing:
                     cmd += " --skip-existing"
                 executor.submit(run_command, cmd, str(log_file))
