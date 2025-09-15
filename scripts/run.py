@@ -12,6 +12,7 @@ parser.add_argument("--comp", type=str, required=True)
 parser.add_argument("--output-folder", type=str, default="outputs")
 parser.add_argument("--configs-folder", type=str, default="configs/models")
 parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
+parser.add_argument("--recompute-tokens", action='store_true', help="Recompute tokens for all models")
 args = parser.parse_args()
 
 for config_path in args.configs:
@@ -22,4 +23,4 @@ for config_path in args.configs:
     model_config["n"] = model_config.get("n", args.n)
     logger.info(f"Running config: {config_path}")
     run(model_config, config_path, args.comp, skip_existing=args.skip_existing, 
-        output_folder=args.output_folder, competition_config_folder=args.competition_config_folder)
+        output_folder=args.output_folder, competition_config_folder=args.competition_config_folder, recompute_tokens=args.recompute_tokens)

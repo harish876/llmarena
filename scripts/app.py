@@ -1,9 +1,13 @@
+import argparse
 import json
 import os
+
 import sympy
-import argparse 
 from fasthtml.common import *
 from loguru import logger
+import yaml
+import csv
+
 from matharena.configs import extract_existing_configs
 from matharena.parser import WarningType
 
@@ -49,7 +53,20 @@ def analyze_run(competition, models):
 #logger.info(f"Analyzing run {run_dir}.")
 # results = analyze_run(run_dir, args.models, args.problems, max_variations=args.max_variations)[0]
 results = analyze_run(args.comp, args.models)
-#logger.info(f"Done analyzing run {run_dir}.")
+
+# get problem names 
+# TODO: unify/refactor to have names here 
+problem_names = {}
+with open(f"{args.competition_config_folder}/{args.comp}.yaml", "r") as f:
+    competition_config = yaml.safe_load(f)
+source_path = f"{competition_config['dataset_path']}/source.csv"
+if os.path.exists(source_path):
+    with open(source_path, "r") as f:
+        reader = csv.reader(f)
+        problems = [row for row in reader][1:]
+        problem_names = {int(row[0]): row[1] for row in problems}
+print(problem_names)
+
 
 app, rt = fast_app(live=False, hdrs=[
     Meta(name="color-scheme", content="only light"),
@@ -128,6 +145,8 @@ app, rt = fast_app(live=False, hdrs=[
     }
     .response-box {
         background-color: #ffe4c8;
+        white-space: pre-wrap;
+        tab-size: 4;
         font-weight: normal;
     }
     .response-box-details {
@@ -229,7 +248,10 @@ def get_model_stats(results, model):
 def model_stats_to_html(stats):
     problem_stats_html = [] 
     for problem, stat in sorted(stats['problem_stats'].items(), key=lambda x: x[0]):
-        p = f"{problem}:{' '*(30-len(str(problem)))}"
+        problem_full_name = str(problem) 
+        if problem in problem_names:
+            problem_full_name += f" ({problem_names[problem]})"
+        p = f"{problem_full_name}:{' '*(30-len(str(problem_full_name)))}"
         p += f"{stat['accuracy']*100:.2f}% " 
         p += f"({stat['nb_instances']} instances: "
         for i, correct in enumerate(stat['corrects']):
@@ -315,7 +337,10 @@ def get(model: str):
 
     for problem in sorted(results[model].keys(), key=lambda x: int(x)):
         ticks = get_problem_ticks(results, model, problem)
-        link_text = f"{problem} {ticks}"
+        problem_full_name = str(problem)
+        if problem in problem_names:
+            problem_full_name += f" ({problem_names[problem]})"
+        link_text = f"{problem_full_name} {ticks}"
         links.append(A(link_text, href=f"/view/{model}/{problem}", cls="sidebar-item"))
     
     stats = get_model_stats(results, model)
@@ -349,22 +374,27 @@ def get(id: str): #model>>problemname>>id
         responses = entry["response"]
         response_boxes = []
         for response in responses:
-            role, content = response["role"], response["content"]
+            role, content, type_ = response["role"], response["content"], response.get("type", "")
             if type(content) == list:
                 content = "\n".join(content)
             response = sanitize_response(content)
             response_boxes.append(P(f"Role: {role}", cls="strong"))
 
-            # TODO hacky bugfixes for now
-            # find first ocucrence of ``` and if there is no python right after put it 
-            occ = response.find('```')
-            if occ != -1 and response[occ+3:occ+5] != 'py':
-                response = response[:occ+3] + 'python\n' + response[occ+3:]
-            occ = response.rfind('```')
-            if occ != -1 and response[occ-1:occ] != '\n':
-                response = response[:occ] + '\n' + response[occ:]
-
-            response_boxes.append(Div(response, cls=f"marked box response-box {role}"))
+            if role == 'code' or role == "tool" or type_ == "code_interpreter_call":
+                # try to parse it as a dict
+                try:
+                    response_dict = json.loads(response)
+                    if "tool_name" in response_dict and response_dict["tool_name"] == "execute_code":
+                        code = response_dict["tool_arguments"]["code"]
+                    else:
+                        code = response
+                except:
+                    code = response
+                response = code.replace('```python','').replace('```', '').strip()
+                response = Pre(Code(code), cls=f"language-python marked box response-box code")
+            else:
+                response = Div(response, cls=f"marked box response-box {role}")
+            response_boxes.append(response)
         return Div(*response_boxes)
 
 
@@ -379,7 +409,10 @@ def get(model: str, problem_name: str):
     for problem in sorted(results[model].keys(), key=lambda x: int(x)):
         ticks = get_problem_ticks(results, model, problem)
         cls = "sidebar-item" if problem != problem_name else "sidebar-item current"
-        link_text = f"{int(problem)} {ticks}"
+        problem_full_name = str(problem)
+        if problem in problem_names:
+            problem_full_name += f" ({problem_names[problem]})"
+        link_text = f"{problem_full_name} {ticks}"
         links.append(A(link_text, href=f"/view/{model}/{int(problem)}", cls=cls))
     ticks = get_problem_ticks(results, model, problem_name) # my ticks
 
@@ -407,7 +440,7 @@ def get(model: str, problem_name: str):
     for i, messages in enumerate(res["messages"]):
         curr_html = []
         # Lazy population 
-        extras = {'id': f"{model}>>{problem_name}"}
+        #extras = {'id': f"{model}>>{problem_name}"}
 
         # curr_html.append(Details(Summary("Model Interaction:"), cls="response-box-details strong", **extras))
         
@@ -426,9 +459,10 @@ def get(model: str, problem_name: str):
         logger.info(verdict)
         correct_cls = "correct" if is_correct else "incorrect"
 
+        curr_html.append(Div(cls=f"fake-hr"))
         extras = {'id': f"{model}>>{problem_name}>>{i}"}
-        curr_html.append(Details(Summary("Model Interaction:"), cls="response-box-details strong", **extras))
-        curr_html.append(P(f"Parsed Answer ({verdict}, {warning}):", cls="strong"))
+        curr_html.append(Details(Summary(f"[Try #{i}] Model Interaction:"), cls="response-box-details strong", **extras))
+        curr_html.append(P(f"[Try #{i}] Parsed Answer ({verdict}, {warning} warnings):", cls="strong"))
         curr_html.append(Div(answer, cls=f"box answer-box {correct_cls}"))
 
         instances_html.append(Div(*curr_html))
@@ -501,6 +535,8 @@ def get(model: str, problem_name: str):
                                     event.target.innerHTML += data; // Append or replace this with actual structure
                                     event.target.setAttribute('data-loaded', true); // Mark as loaded
                                     MathJax.typesetPromise();
+
+                                    hljs.highlightAll();
                                 })
                                 .catch(error => console.error('Error fetching response details:', error));
                         }
@@ -510,16 +546,26 @@ def get(model: str, problem_name: str):
         });
     """)
 
+    highlightjs_css = Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css")
+
+    highlightjs = Script(id="HighlightJS", src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js")
+
     d = Div(*links[3:], cls="sidebar-list")
     sidebar = Div(*links[:3], d, cls="sidebar")
+    problem_full_name = str(problem_name)
+    if int(problem_name) in problem_names:
+        # TODO very ugly variable naming :) 
+        problem_full_name += f" ({problem_names[int(problem_name)]})"
     return Titled(title, Div(
         mathjaxsetup,
         mathjax,
+        highlightjs_css,
+        highlightjs,
         sidebar,
         scroll_and_lazyfetch_script,
         Div(
             H3(f"Model: {model}", style="text-align: left;"),
-            H3(f"Problem: {problem_name} {ticks}", style="text-align: left;"),
+            H3(f"Problem: {problem_full_name} {ticks}", style="text-align: left;"),
             *instances_html,
             cls="main"
         ),
@@ -528,3 +574,4 @@ def get(model: str, problem_name: str):
 
 ###
 serve(reload=True, port=args.port)
+

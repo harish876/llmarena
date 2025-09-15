@@ -1,0 +1,63 @@
+competition: euler
+dataset_path: data/euler/euler
+date:
+  '943': '2025-05-04'
+  '944': '2025-05-11'
+  '945': '2025-05-18'
+  '946': '2025-05-25'
+  '947': '2025-05-31'
+  '948': '2025-06-07'
+  '949': '2025-06-07'
+  '950': '2025-06-14'
+  '951': '2025-06-21'
+  '952': '2025-06-29'
+  '953': '2025-07-06'
+  '954': '2025-07-13'
+  '955': '2025-07-20'
+  '956': '2025-07-26'
+  '957': '2025-08-02'
+  '958': '2025-08-30'
+  '959': '2025-09-07'
+  '960': '2025-09-14'
+instruction: "You are solving a problem from Project Euler. \nAs a tool you can use,\
+  \ you are given access to a code execution environment. Invoke that tool to execute\
+  \ Python or C++ code. You can execute code up to 20 times, so you can use them quite\
+  \ liberally.\nYou can also use the tool to run code that helps you reason about\
+  \ the problem, but does not directly compute the final answer.\nAnswers that consist\
+  \ of code are not accepted, I will only accept a final answer to the question that\
+  \ does not require me to run any code you produce, as you should use the tool for\
+  \ this.\nYou are REQUIRED to use the tool to compute the final answer. It is impossible\
+  \ to solve this problem without using the tool. \nInstead, your code should compute\
+  \ the answer (via the tool), after which you should put your final answer within\
+  \ \\boxed{{}}.\nYour answer should be correctly formatted by putting your final\
+  \ answer within \\boxed{{}}, i.e., end your reply with \"### Final answer: \\\\\
+  boxed{{your_answer_here}}\".\n"
+max_tool_calls: 20
+n_problems: 18
+strict_parsing: false
+tools:
+- openai_responses_tool:
+    container:
+      type: auto
+    type: code_interpreter
+  tool:
+    function:
+      description: 'Executes the code in the given language and returns the standard
+        output and standard error. Your code is always executed as a self-contained
+        script, and it does not have access to the previously executed code blocks!
+        If you use python, your code will be run in an environment with the following
+        libraries installed: pandas, numpy, scikit-learn, sympy, gmpy2'
+      name: execute_code
+      parameters:
+        properties:
+          code:
+            description: The self-contained code to execute
+            type: string
+          lang:
+            description: The programming language of the code (python or cpp)
+            type: string
+        required:
+        - code
+        - lang
+        type: object
+    type: function

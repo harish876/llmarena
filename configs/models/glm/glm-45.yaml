@@ -1,0 +1,10 @@
+model: glm-4.5
+api: glm
+max_tokens: 81920
+concurrent_requests: 60
+temperature: 0.6
+top_p: 0.95
+read_cost: 0.6
+write_cost: 2.2
+human_readable_id: GLM 4.5
+date: "2025-08-01"

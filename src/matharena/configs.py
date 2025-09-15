@@ -1,3 +1,5 @@
+"""This module handles loading and managing configurations from YAML files."""
+
 import yaml
 import os
 from pathlib import Path
@@ -5,12 +7,29 @@ from loguru import logger
 import json
 import re
 
+
 def check_valid_config(config):
+    """Checks if a configuration is valid.
+
+    Args:
+        config (dict): The configuration to check.
+
+    Raises:
+        AssertionError: If the configuration is invalid.
+    """
     assert "human_readable_id" in config and isinstance(config["human_readable_id"], str), "human_readable_id not found in config"
-    assert "model" in config and isinstance(config["model"], str), "model not found in config"
-    assert "api" in config and isinstance(config["api"], str), "api not found in config"
 
 def load_configs(root_dir, remove_extension=True):
+    """Loads all YAML configuration files from a directory.
+
+    Args:
+        root_dir (str): The root directory to search for configuration files.
+        remove_extension (bool, optional): Whether to remove the file extension from the
+            configuration keys. Defaults to True.
+
+    Returns:
+        dict: A dictionary of configurations, where the keys are the relative file paths.
+    """
     root = Path(root_dir)
     # Find all YAML files (supporting both .yaml and .yml extensions) recursively.
     yaml_files = list(root.rglob('*.yaml')) + list(root.rglob('*.yml'))
@@ -31,7 +50,18 @@ def load_configs(root_dir, remove_extension=True):
     
     return output_configs
 
-def exclude_configs(configs, human_readable_ids, exclude_file_path):
+def exclude_configs(configs, human_readable_ids, exclude_file_path, comp):
+    """Excludes configurations based on a regex file.
+
+    Args:
+        configs (dict): The configurations to filter.
+        human_readable_ids (dict): The human-readable IDs of the configurations.
+        exclude_file_path (str): The path to the file containing regexes for exclusion.
+        comp (str): The competition name.
+
+    Returns:
+        tuple: A tuple containing the filtered configurations and human-readable IDs.
+    """
     if exclude_file_path is None:
         return configs, human_readable_ids
     with open(exclude_file_path, "r") as f:
@@ -40,6 +70,10 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path):
         ]
     for config_path in list(configs.keys()):
         for regex in exclude_regexes:
+            if " EXCEPT " in regex:
+                regex, competition_exception = regex.split(" EXCEPT ")
+                if re.match(competition_exception, comp):
+                    continue
             if re.match(regex, config_path):
                 logger.info(f"Excluding {config_path} due to {regex}")
                 del configs[config_path]
@@ -49,6 +83,21 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path):
 
 def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competition_configs, 
                              exclude_file_path=None, allow_non_existing_judgment=False):
+    """Extracts existing configurations for a competition.
+
+    Args:
+        comp (str): The competition name.
+        root_dir (str): The root directory of the competition data.
+        root_dir_configs (str): The root directory of the model configurations.
+        root_dir_competition_configs (str): The root directory of the competition configurations.
+        exclude_file_path (str, optional): The path to the file containing regexes for
+            exclusion. Defaults to None.
+        allow_non_existing_judgment (bool, optional): Whether to allow non-existing
+            judgments. Defaults to False.
+
+    Returns:
+        tuple: A tuple containing the filtered configurations and human-readable IDs.
+    """
     with open(f"{root_dir_competition_configs}/{comp}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
     
@@ -82,5 +131,5 @@ def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competit
             duplicated.add(v)
         raise ValueError("Duplicate human readable ids. Website currently does not support this.")
     
-    configs, human_readable_ids = exclude_configs(configs, human_readable_ids, exclude_file_path)
+    configs, human_readable_ids = exclude_configs(configs, human_readable_ids, exclude_file_path, comp)
     return configs, human_readable_ids

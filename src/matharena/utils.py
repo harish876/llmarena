@@ -8,7 +8,7 @@ def latex2sympy_fixed(latex: str):
     latex = re.sub(r"_([0-9]+)", r"_{\1}", latex)
     latex_parsed = parse_latex(latex)
     # replace constants like pi and e with their numerical value
-    known_constants = {'pi': sympy.pi, 'e': sympy.E}
+    known_constants = {'pi': sympy.pi, 'e': sympy.E, 'I': 1j, "i": 1j}
 
     # Replace any symbol in expr that is in our known_constants dictionary.
     expr = latex_parsed.xreplace({s: known_constants[s.name]

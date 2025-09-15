@@ -37,6 +37,10 @@ if __name__ == "__main__":
     else:
         answers = json.load(open(os.path.join(folder, "grading_scheme.json"), "r"))
         ids = [grading["id"] for grading in answers]
+    
+    if os.path.exists(os.path.join(folder, "source.csv")):
+        source = pd.read_csv(os.path.join(folder, "source.csv"))
+        answers = answers.merge(source, on="id")
 
     for i, idx in enumerate(ids):
         problem_file = os.path.join(folder, "problems", f"{idx}.tex")
@@ -44,19 +48,30 @@ if __name__ == "__main__":
         data_dict["problem_idx"] = idx
         data_dict["problem"] = open(problem_file, "r").read()
         if competition_config.get("final_answer", True):
-            data_dict["answer"] = answers.iloc[i]["answer"]
+            if "euler" not in args.comp:
+                data_dict["answer"] = answers.iloc[i]["answer"]
+            else:
+                data_dict["answer"] = None
             if "type" in answers.columns:
                 data_dict["problem_type"] = answers.iloc[i]["type"]
+            if "source" in answers.columns:
+                data_dict["source"] = answers.iloc[i]["source"]
         else:
             data_dict["points"] = answers[i]["points"]
             data_dict["grading_scheme"] = answers[i]["scheme"]
             sample_solution_file = os.path.join(folder, "solutions", f"{idx}.tex")
-            data_dict["sample_solution"] = open(sample_solution_file, "r").read()
-            sample_grading_file = os.path.join(folder, "sample_grading", f"{idx}.txt")
-            data_dict["sample_grading"] = open(sample_grading_file, "r").read()
+
+            if os.path.exists(sample_solution_file):
+                data_dict["sample_solution"] = open(sample_solution_file, "r").read()
+                sample_grading_file = os.path.join(folder, "sample_grading", f"{idx}.txt")
+                data_dict["sample_grading"] = open(sample_grading_file, "r").read()
         
         all_data.append(data_dict)
     df = pd.DataFrame(all_data)
+    # remove  samples from the "smt" competition
+    if "source" in df.columns:
+        df = df[df["source"].apply(lambda x: "smt" not in x.lower())]
+
     dataset = Dataset.from_pandas(df)
     dataset.push_to_hub(
         os.path.join(args.org, args.repo_name),

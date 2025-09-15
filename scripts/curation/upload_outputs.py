@@ -34,6 +34,11 @@ if __name__ == "__main__":
         if not os.path.exists(folder_model):
             logger.info(f"Folder {folder_model} does not exist, skipping...")
             continue
+
+        if "model_config" in configs[config_path]:
+            config_model = configs[configs[config_path]["model_config"].replace("models/", "")]
+            configs[config_path]["read_cost"] = config_model["read_cost"]
+            configs[config_path]["write_cost"] = config_model["write_cost"]
             
         # list all files in the folder
         problem_files = os.listdir(folder_model)
@@ -51,13 +56,16 @@ if __name__ == "__main__":
                     "model_config": config_path,
                     "idx_answer": i,
                     "user_message": data["messages"][i][0]["content"],
-                    "answer": data["messages"][i][1]["content"],
+                    "answer": data["messages"][i][-1]["content"],
                     "input_tokens": data["detailed_costs"][i]["input_tokens"],
                     "output_tokens": data["detailed_costs"][i]["output_tokens"],
                     "cost": data["detailed_costs"][i]["cost"],
                     "input_cost_per_tokens": configs[config_path]["read_cost"],
                     "output_cost_per_tokens": configs[config_path]["write_cost"],
                 }
+
+                if "source" in data:
+                    default_dict["source"] = data["source"]
 
                 if competition_config.get("final_answer", True):
                     extra_dict = {
@@ -81,6 +89,9 @@ if __name__ == "__main__":
     df = pd.DataFrame(all_data)
     if "parsed_answer" in df.columns:
         df["parsed_answer"] = df["parsed_answer"].astype(str)
+    if "source" in df.columns:
+        df = df[df["source"].apply(lambda x: "smt" not in x.lower())]
+    
     dataset = Dataset.from_pandas(df)
     dataset.push_to_hub(
         os.path.join(args.org, args.repo_name),

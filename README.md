@@ -5,7 +5,10 @@
 <img alt="Build" src="https://img.shields.io/badge/Python-3.12-1f425f.svg?color=blue">
   </a>
   <a href="https://opensource.org/licenses/MIT">
-<img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
+<img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg">
+  </a>
+  <a href="https://huggingface.co/MathArena">
+<img alt="MathArena Datasets" src="https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Matharena-ffc107?color=ffc107&logoColor=white">
   </a>
 </div>
 
@@ -18,13 +21,12 @@ MathArena is a platform for the evaluation of LLMs on the latest math competitio
 - [Evaluating a New Model](#evaluating-a-new-model)
   - [Model Configuration](#model-configuration)
   - [Running the Model](#running-the-model)
-  - [Local VLLM Usage](#running-models-locally-using-vllm)
+  - [Project Euler](#project-euler)
 - [Adding a Competition](#adding-a-competition)
   - [Setting Up Competition Files](#setting-up-competition-files)
   - [Verifying Problem Statements](#verifying-problem-statements)
   - [Running Models on Competitions](#running-models-on-competitions)
   - [Competitions Requiring Grading](#competitions-requiring-grading)
-  - [Running LLMs as Judges](#running-llms-as-judges)
 - [Viewing Results](#viewing-results)
 - [Evaluation logs](#evaluation-logs)
 
@@ -90,7 +92,7 @@ uv run python scripts/run.py --configs path/to/your/config --comp path/to/compet
 
 **Example:**
 ```bash
-uv run python scripts/run.py --configs openai/gpt-4o --comp aime/aime_2025_I
+uv run python scripts/run.py --configs openai/gpt-4o --comp aime/aime_2025
 ```
 
 **Additional Flags:**
@@ -99,19 +101,16 @@ uv run python scripts/run.py --configs openai/gpt-4o --comp aime/aime_2025_I
 
 *Note*: Errors thrown by the API provider are retried every minute up to 50 times. If no answer is returned after 50 tries, the answer will be counted as incorrect. Running again with `skip-existing` enabled will attempt to run the problems on which this occurred again.
 
-### Running Models Locally Using VLLM
-
-If using a local model with vllm, start the server:
-```bash
-vllm serve [[model_name]] --dtype auto --api-key token-abc123
-```
-
 ### Uploading answers to HuggingFace
 You can upload the model answers to HuggingFace as follows:
 ```bash
 uv run python scripts/curation/upload_outputs.py --org your_org --repo-name your_repo_name --comp path/to/competition
 ```
 This will upload all model answers to a private repository named `your_org/your_repo_name`. `path/to/competition` is the relative path from the `configs/competition` folder to the competition folder (excluding the `.yaml` extension).
+
+### Project Euler
+For Project Euler, several additional steps need to be taken. Please check README_euler.md for the full details.
+
 
 ## ➕ Adding a Competition
 
@@ -185,51 +184,7 @@ This will run models from the same API sequentially and from different APIs conc
 *Note:* For local vllm usage, ensure the vllm server is running as described above. Logs will be found in the `logs/` folder.
 
 ### Competitions Requiring Grading
-To set up grading of questions, convert the model answers to TeX files: 
-```bash
-uv run python scripts/judge/answers_to_latex.py --comp path/to/competition
-```
-This will compile all model answers in a PDF file in the folder `latex/path/to/competition`.
-
-Now, collect all PDFs for all evaluated models in a single folder using:
-```bash
-uv run python scripts/judge/collect_pdfs.py --comp path/to/competition
-```
-This will put all PDFs associated with question with idx `i` in the folder `latex/path/to/competition/i`. Each PDF will be given a unique (anonymous) ID. Follow the instructions in `README_judges.md` to grade each PDF. The grading of a single PDF should be placed in `grading/path/to/competition/i/{ID}.json`, where the ID is the ID given to the PDF associated with the grading. In case a PDF is graded by multiple people, you can add more files by naming them `grading/path/to/competition/i/{ID}_{X}.json` where `X` is any suffix. Finally, run
-```bash
-uv run python scripts/judge/merge_judgments.py --comp path/to/competition
-```
-This will add the judgments directly in the raw output traces of the models.
-
-### Running LLMs as judges
-To run an LLM as a judge, you must first add the solutions of all problems of the competition in `data/path/to/competition/solutions/{i}.text` where `i` is the index of the problem. 
-
-Then, use the following command:
-```bash
-uv run python scripts/grade.py --grader-config path/to/grader --solver-config path/to/solver/1 path/to/solver/2 --comp path/to/competition
-```
-
-**Options:**
-- `path/to/grader`: Relative path from the `configs/models` folder to the model configuration for the judge.
-- `path/to/solver`: Relative path from the `configs/models` folder to the model configuration of the judged model. Multiple ones can be given by passing space-separated paths.
-- `path/to/competition`: Relative path from the `configs/competitions` folder to the competition folder.
-
-**Example:**
-```bash
-uv run python scripts/judge/grade.py --grader-config openai/o3-mini --solver-config openai/o3-mini anthropic/claude-37 --comp usamo/usamo_2025
-```
-
-**Additional Flags:**
-- `--skip-existing`: Skip problems already processed through the model.
-- `--n`: Number of runs per problem to evaluate (default: 4). Must be no larger than the amount of generated solutions.
-
-*Notes:* For local vllm usage, ensure the vllm server is running as described above.
-
-After obtaining the judgments, you can then process them using the aforementioned `merge_judgments.py` script:
-```bash
-uv run python scripts/judge/merge_judgments.py --comp path/to/competition --grading-folder autogradings
-```
-This will add the judgments directly in the raw output traces of the models.
+For competitions requiring human grading, we use the Open Proof Corpus repository: https://github.com/insait-institute/open-proof-corpus. This repository contains instructions to run models on questions and competitions and contains a nice grading interface for judges. It also contains a script that converts that format to the MathArena format. The result of this script should simply be copy-pasted to `outputs/path/to/competition` for use and display in this repository.
 
 ## 📊 Viewing Results
 
@@ -308,6 +263,7 @@ To create a table containing results per category (Combinatorics, Number Theory,
 ```bash
 uv run python scripts/extraction/type_scoring.py --comps aime/aime_2025  hmmt/hmmt_feb_2025
 ```
+
 
 ## 📚 Citation
 

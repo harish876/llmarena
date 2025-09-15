@@ -1,3 +1,6 @@
+"""
+This module contains functions for detecting possible issues in model outputs."""
+
 import re
 from collections import defaultdict
 from matharena.parser import extract_answer
@@ -5,7 +8,13 @@ from matharena.parser import extract_answer
 def extract_numbers(text):
     """
     Extract numbers from the text.
-    Returns a list of tuples: (number_string, start_index, end_index)
+
+    Args:
+        text (str): The text to extract numbers from.
+
+    Returns:
+        list: A list of tuples, where each tuple contains the number string,
+              start index, and end index.
     """
     # This regex handles integers and decimals.
     pattern = r'(?<!\w)(-?\d+(?:\.\d+)?)(?!\w)'
@@ -19,6 +28,14 @@ def check_number_proximity_any_order(gold, model, threshold=20):
     The function finds the smallest window in the model answer that contains
     at least one occurrence of each number from the gold answer. If the span
     of that window is less than or equal to the threshold, we flag it.
+
+    Args:
+        gold (str): The gold answer.
+        model (str): The model's answer.
+        threshold (int, optional): The proximity threshold. Defaults to 20.
+
+    Returns:
+        bool: True if the numbers are close together, False otherwise.
     """
     if len(gold) < 5: # too easy, let's not do this
         return False
@@ -71,12 +88,31 @@ def check_number_proximity_any_order(gold, model, threshold=20):
     return min_window <= threshold    
 
 def check_all_numbers(text, gold_answer):
+    """
+    Check if any number in the text matches the gold answer.
+
+    Args:
+        text (str): The text to check.
+        gold_answer (str): The gold answer.
+
+    Returns:
+        bool: True if a matching number is found, False otherwise.
+    """
     if extract_answer(text, strict_parsing=True)[0] is not None:
         return False
     numbers = re.findall(r'\d+', text)
     return any(num == gold_answer for num in numbers)
 
 def check_output_length(length):
+    """
+    Check if the output length is a power of 2 or 10 times a power of 2.
+
+    Args:
+        length (int): The length of the output.
+
+    Returns:
+        bool: True if the length is suspicious, False otherwise.
+    """
     if length < 1000:
         return False
     if length % 1000 == 0:
