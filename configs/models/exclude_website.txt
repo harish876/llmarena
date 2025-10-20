@@ -1,7 +1,0 @@
-llama4/*
-openai/o3-mini--low-many
-phi4/.*
-qwen/qwen3_235b_a22b_2507.* EXCEPT apex.*
-other/limo.yaml
-other/open-thoughts.yaml
-other/s1.yaml

@@ -5,5 +5,5 @@ read_cost: 2.5
 write_cost: 10
 human_readable_id: gpt-4o
 batch_processing: false
-openai_responses: false
+use_openai_responses_api: false
 date: "2024-08-06"

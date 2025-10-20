@@ -33,3 +33,8 @@ parser_judge_logs/
 euler_cookies.pkl
 data/autobench/
 data/autobench_highschool/
+configs/models/exclude_website.txt
+scripts/postprocess*
+scripts/analyses
+scripts/curation/*.sh
+scripts/extraction/timeline.py

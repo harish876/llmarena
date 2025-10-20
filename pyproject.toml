@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "Mislav Balunovic", email = "mislav.balunovic@gmail.com" }
+    { name = "Mislav Balunovic", email = "mislav.balunovic@gmail.com" },
+    { name = "Jasper Dekoninck", email = "jasper.dekoninck@inf.ethz.ch" },
+    { name = "Nikola Jovanovic", email = "nikola.jovanovic@inf.ethz.ch" },
+    { name = "Ivo Petrov", email = "ivo.petrov@insait.ai" }
 ]
 requires-python = ">=3.12"
 dependencies = [
@@ -33,6 +36,7 @@ dependencies = [
     "transformers>=4.55.0",
     "pyyaml>=6.0",
     "openai-harmony>=0.0.4",
+    "pyarrow>=20.0.0"
 ]
 
 [build-system]
@@ -41,3 +45,10 @@ build-backend = "hatchling.build"
 
 [tool.uv.workspace]
 members = ["website"]
+
+[tool.black]
+line-length = 120
+
+[tool.flake8]
+max-line-length = 120
+extend-ignore = ["E203", "E266", "E501", "W503"]

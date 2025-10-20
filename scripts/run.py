@@ -1,26 +1,36 @@
 import argparse
-import os
-from matharena.runner import run
-import yaml
+
 from loguru import logger
 
+from matharena.runner import Runner
+
+# Main args: which competition to run with which models; how many runs per problem
 parser = argparse.ArgumentParser()
-parser.add_argument("--n", type=int, default=4)
-parser.add_argument("--configs", type=str, nargs="+", required=True)
-parser.add_argument("--skip-existing", action="store_true")
-parser.add_argument("--comp", type=str, required=True)
-parser.add_argument("--output-folder", type=str, default="outputs")
-parser.add_argument("--configs-folder", type=str, default="configs/models")
-parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
-parser.add_argument("--recompute-tokens", action='store_true', help="Recompute tokens for all models")
+parser.add_argument("--comp", type=str, required=True, help="Competition config to run")
+parser.add_argument(
+    "--models",
+    type=str,
+    nargs="+",
+    required=True,
+    help="List of model configs to run, might have scaffolding, example: xai/grok-4",
+)
+parser.add_argument("--n", type=int, default=4, help="Number of runs per problem")
+
+# skip-existing is default
+parser.add_argument(
+    "--redo-all", action="store_true", help="Redo all (model, problem) pairs regardless of existing runs"
+)
+
+# Generally ok to keep defaults here
+parser.add_argument("--comp-configs-dir", type=str, default="configs/competitions")
+parser.add_argument("--model-configs-dir", type=str, default="configs/models")
+parser.add_argument("--output-dir", type=str, default="outputs")
 args = parser.parse_args()
 
-for config_path in args.configs:
-    config_path = config_path + ".yaml" if not config_path.endswith(".yaml") else config_path
-    with open(f"{args.configs_folder}/{config_path}", 'r') as f:
-        model_config = yaml.safe_load(f)
-    
-    model_config["n"] = model_config.get("n", args.n)
-    logger.info(f"Running config: {config_path}")
-    run(model_config, config_path, args.comp, skip_existing=args.skip_existing, 
-        output_folder=args.output_folder, competition_config_folder=args.competition_config_folder, recompute_tokens=args.recompute_tokens)
+logger.info(f"Initializing runner for competition {args.comp}")
+runner = Runner(args.comp, args.n, args.comp_configs_dir, args.model_configs_dir, args.output_dir, args.redo_all)
+
+# Run each model
+for model in args.models:
+    logger.info(f"Calling runner for model: {model}")
+    runner.run(model)

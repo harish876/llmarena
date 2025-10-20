@@ -5,6 +5,6 @@ read_cost: 2
 write_cost: 8
 human_readable_id: o3 (high)
 batch_processing: false
-openai_responses: true
+use_openai_responses_api: true
 date: "2025-04-16"
 concurrent_requests: 4

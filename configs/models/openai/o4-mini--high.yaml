@@ -6,5 +6,5 @@ write_cost: 4.4
 concurrent_requests: 10
 human_readable_id: o4-mini (high)
 batch_processing: false
-openai_responses: true
+use_openai_responses_api: true
 date: "2025-04-16"

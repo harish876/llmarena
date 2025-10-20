@@ -65,7 +65,7 @@ async def run_judgement(candidates, batch_size, n_samples=4):
                     print(f"judge_score={judge_score}, correct={correct}\n")
                     print("Answer:\n", answer)
                     print("Gold answer:\n", gold_answer)
-                    judge_path = os.path.join("parser_judge_logs", "judge_" + file_path.replace("/", "--") + f"--sample-{sample_idx}.txt")
+                    judge_path = os.path.join("logs/parser_judge", "judge_" + file_path.replace("/", "--") + f"--sample-{sample_idx}.txt")
                     all_files.append(file_path)
                     with open(judge_path, "w") as f:
                         f.write(f"judge_score={judge_score}, correct={correct}\n")
@@ -141,8 +141,8 @@ def main():
                                     print("=" * 100)
                                     candidates.append((answer, gold_answer, data["correct"][i], file_path, i))
 
-    if not os.path.exists("parser_judge_logs"):
-        os.makedirs("parser_judge_logs")
+    if not os.path.exists("logs/parser_judge"):
+        os.makedirs("logs/parser_judge")
     asyncio.run(run_judgement(candidates, args.batch_size, n_samples=args.n_samples))
 
 if __name__ == "__main__":

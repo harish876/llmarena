@@ -134,7 +134,7 @@ if __name__ == "__main__":
     competition_dates = {
         comp: yaml.safe_load(open(f"{args.competition_config_folder}/{comp}.yaml", "r"))["date"] for comp in args.comps
     }
-    competition_dates = {comp: datetime.strptime(date, "%Y-%m-%d") for comp, date in competition_dates.items()}
+    competition_dates = {comp: datetime.strptime(date, "%Y-%m-%d") if isinstance(date, str) else datetime.strptime("2000-01-01", "%Y-%m-%d") for comp, date in competition_dates.items()}
     
     if args.compute_variance:
         scores, _ = get_scores(args.comps, args.output_folder,

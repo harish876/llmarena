@@ -11,5 +11,5 @@ provider:
 concurrent_requests: 16
 read_cost: 0.6
 write_cost: 1.2
-human_readable_id: Qwen3-A22B-2507-Think
+human_readable_id: Qwen3-235B-2507-Think
 date: "2025-07-25"

@@ -5,5 +5,5 @@ read_cost: 15
 write_cost: 60
 human_readable_id: o1 (medium)
 batch_processing: true
-openai_responses: true
+use_openai_responses_api: true
 date: "2024-09-12"

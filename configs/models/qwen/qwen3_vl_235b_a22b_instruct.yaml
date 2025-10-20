@@ -1,0 +1,14 @@
+model: qwen/qwen3-vl-235b-a22b-instruct
+api: openrouter
+max_tokens: 128000
+temperature: 0.6
+top_p: 0.95
+concurrent_requests: 10
+provider:
+  allow_fallbacks: False
+  order:
+  - parasail
+read_cost: 0.45
+write_cost: 3.50
+human_readable_id: Qwen3-VL-235B Instruct
+date: "2025-09-23"

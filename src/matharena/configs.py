@@ -1,11 +1,11 @@
 """This module handles loading and managing configurations from YAML files."""
 
-import yaml
-import os
-from pathlib import Path
-from loguru import logger
 import json
+import os
 import re
+from pathlib import Path
+import yaml
+from loguru import logger
 
 
 def check_valid_config(config):
@@ -17,7 +17,10 @@ def check_valid_config(config):
     Raises:
         AssertionError: If the configuration is invalid.
     """
-    assert "human_readable_id" in config and isinstance(config["human_readable_id"], str), "human_readable_id not found in config"
+    assert "human_readable_id" in config and isinstance(
+        config["human_readable_id"], str
+    ), "human_readable_id not found in config"
+
 
 def load_configs(root_dir, remove_extension=True):
     """Loads all YAML configuration files from a directory.
@@ -32,14 +35,14 @@ def load_configs(root_dir, remove_extension=True):
     """
     root = Path(root_dir)
     # Find all YAML files (supporting both .yaml and .yml extensions) recursively.
-    yaml_files = list(root.rglob('*.yaml')) + list(root.rglob('*.yml'))
+    yaml_files = list(root.rglob("*.yaml")) + list(root.rglob("*.yml"))
 
     output_configs = dict()
 
     for file_path in yaml_files:
-        with file_path.open('r') as f:
+        with file_path.open("r") as f:
             config_data = yaml.safe_load(f)
-        file_path_remove_config = str(file_path).replace('\\','/').replace(str(root).replace('\\','/') + "/", "")
+        file_path_remove_config = str(file_path).replace("\\", "/").replace(str(root).replace("\\", "/") + "/", "")
         if remove_extension:
             file_path_remove_config = file_path_remove_config.replace(".yaml", "").replace(".yml", "")
         try:
@@ -47,8 +50,9 @@ def load_configs(root_dir, remove_extension=True):
         except AssertionError as e:
             raise ValueError(f"Config not correct in {file_path}: {e}")
         output_configs[file_path_remove_config] = config_data
-    
+
     return output_configs
+
 
 def exclude_configs(configs, human_readable_ids, exclude_file_path, comp):
     """Excludes configurations based on a regex file.
@@ -65,9 +69,7 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path, comp):
     if exclude_file_path is None:
         return configs, human_readable_ids
     with open(exclude_file_path, "r") as f:
-        exclude_regexes = [
-            line.strip() for line in f.readlines()
-        ]
+        exclude_regexes = [line.strip() for line in f.readlines()]
     for config_path in list(configs.keys()):
         for regex in exclude_regexes:
             if " EXCEPT " in regex:
@@ -81,8 +83,15 @@ def exclude_configs(configs, human_readable_ids, exclude_file_path, comp):
                 break
     return configs, human_readable_ids
 
-def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competition_configs, 
-                             exclude_file_path=None, allow_non_existing_judgment=False):
+
+def extract_existing_configs(
+    comp,
+    root_dir,
+    root_dir_configs,
+    root_dir_competition_configs,
+    exclude_file_path=None,
+    allow_non_existing_judgment=False,
+):
     """Extracts existing configurations for a competition.
 
     Args:
@@ -100,7 +109,7 @@ def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competit
     """
     with open(f"{root_dir_competition_configs}/{comp}.yaml", "r") as f:
         competition_config = yaml.safe_load(f)
-    
+
     is_final_answer = competition_config.get("final_answer", True)
 
     all_configs = load_configs(root_dir_configs)
@@ -130,6 +139,6 @@ def extract_existing_configs(comp, root_dir, root_dir_configs, root_dir_competit
                 logger.error(f"Duplicate human readable id {v} found in {k}")
             duplicated.add(v)
         raise ValueError("Duplicate human readable ids. Website currently does not support this.")
-    
+
     configs, human_readable_ids = exclude_configs(configs, human_readable_ids, exclude_file_path, comp)
     return configs, human_readable_ids

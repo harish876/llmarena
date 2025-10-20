@@ -8,7 +8,7 @@ temperature: null
 top_p: null
 human_readable_id: GPT-5-mini (high)
 batch_processing: false
-openai_responses: true
+use_openai_responses_api: true
 date: "2025-08-07"
 reasoning:
   summary: "auto"

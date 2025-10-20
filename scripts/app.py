@@ -1,22 +1,21 @@
 import argparse
+import csv
 import json
 import os
 
-import sympy
-from fasthtml.common import *
-from loguru import logger
 import yaml
-import csv
+from fasthtml.common import *
+from pyparsing import srange
+from torch import ScriptDict
 
 from matharena.configs import extract_existing_configs
-from matharena.parser import WarningType
 
 """
     A dashboard app that shows all about a run 
 """
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--comp", type=str, required=True)
+parser.add_argument("--comp", type=str)
 parser.add_argument("--models", type=str, nargs="+", default=None)
 parser.add_argument("--port", type=int, default=5001)
 parser.add_argument("--output-folder", type=str, default="outputs")
@@ -24,10 +23,28 @@ parser.add_argument("--config-folder", type=str, default="configs/models")
 parser.add_argument("--competition-config-folder", type=str, default="configs/competitions")
 args = parser.parse_args()
 
+current_comp = args.comp if args.comp is not None else "imo/imo_2025"  # fast-loading default comp
+
+# Find all comps, directories below outputs of depth 2
+all_comps = []
+for root, dirs, files in os.walk(args.output_folder):
+    rel_path = os.path.relpath(root, args.output_folder)
+    depth = rel_path.count(os.sep)
+    if depth == 1:
+        all_comps.append(rel_path)
+print(all_comps)
+# sort by date modified
+all_comps = sorted(all_comps, key=lambda x: os.path.getmtime(os.path.join(args.output_folder, x)), reverse=True)
+
+
 def analyze_run(competition, models):
-    configs, human_readable_ids = extract_existing_configs(competition, args.output_folder, args.config_folder, 
-                                                           args.competition_config_folder, 
-                                                           allow_non_existing_judgment=True)
+    configs, human_readable_ids = extract_existing_configs(
+        competition,
+        args.output_folder,
+        args.config_folder,
+        args.competition_config_folder,
+        allow_non_existing_judgment=True,
+    )
     if models is not None:
         for config_path in list(human_readable_ids.keys()):
             if human_readable_ids[config_path] not in models:
@@ -49,29 +66,46 @@ def analyze_run(competition, models):
     return results
 
 
-# Analyze run 
-#logger.info(f"Analyzing run {run_dir}.")
-# results = analyze_run(run_dir, args.models, args.problems, max_variations=args.max_variations)[0]
-results = analyze_run(args.comp, args.models)
-
-# get problem names 
-# TODO: unify/refactor to have names here 
-problem_names = {}
-with open(f"{args.competition_config_folder}/{args.comp}.yaml", "r") as f:
-    competition_config = yaml.safe_load(f)
-source_path = f"{competition_config['dataset_path']}/source.csv"
-if os.path.exists(source_path):
-    with open(source_path, "r") as f:
-        reader = csv.reader(f)
-        problems = [row for row in reader][1:]
-        problem_names = {int(row[0]): row[1] for row in problems}
-print(problem_names)
+def load_sources(comp):
+    sources = {}
+    with open(f"{args.competition_config_folder}/{comp}.yaml", "r") as f:
+        competition_config = yaml.safe_load(f)
+    source_path = f"{competition_config['dataset_path']}/source.csv"
+    if os.path.exists(source_path):
+        with open(source_path, "r") as f:
+            reader = csv.reader(f)
+            problems = [row for row in reader][1:]
+            sources = {int(row[0]): row[1] for row in problems}
+    return sources
 
 
-app, rt = fast_app(live=False, hdrs=[
-    Meta(name="color-scheme", content="only light"),
-    #KatexMarkdownJS(),
-    Style("""
+# Analyze run
+results = analyze_run(current_comp, args.models)
+boxes_expanded = False
+
+# Get problem names
+sources = load_sources(current_comp)
+
+app, rt = fast_app(
+    live=False,
+    hdrs=[
+        Meta(name="color-scheme", content="only light"),
+        # KatexMarkdownJS(),
+        Style(
+            """
+    :root {
+        color-scheme: only light !important;
+    }
+    body, html {
+        background-color: white !important;
+        color: #333 !important;
+    }
+    h1, h2, h3, h4, h5, h6, summary, p {
+        color: #333 !important;
+    }
+    * {
+        color-scheme: only light !important;
+    }
     .sidebar {
         display: inline-block;
         width: 30%;
@@ -88,6 +122,19 @@ app, rt = fast_app(live=False, hdrs=[
         max-height: 1000px;
         position: relative;
         overflow-y: scroll;
+    }
+    .expanded-1 {
+        max-height: none !important;
+        overflow-y: visible;
+    }
+    #comp-dropdown {
+        padding: 0.5rem;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 0.9rem;
+        min-width: 200px;
+        margin-bottom: 1rem;
     }
     .sidebar-item {
         display: block;
@@ -186,9 +233,78 @@ app, rt = fast_app(live=False, hdrs=[
         display: block;
         margin: 2rem auto;
     }
-""")])
+    #history-step-selector {
+        padding: 0.5rem;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 0.9rem;
+        min-width: 200px;
+        margin-bottom: 1rem;
+    }
+    #history-step-selector:focus {
+        outline: 2px solid #002f94;
+        border-color: #002f94;
+    }
+    .conversation-content {
+        border-left: 3px solid #dee2e6;
+        padding-left: 1rem;
+    }
+    .error {
+        color: #dc3545;
+        padding: 0.5rem;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        border-radius: 4px;
+        margin: 0.5rem 0;
+    }
+    .copy-button {
+        font-size: 2rem;
+    }
+"""
+        ),
+        Script(
+            """
+document.addEventListener('DOMContentLoaded', function() {
+    const dropdown = document.getElementById('comp-dropdown');
+    if (dropdown) {
+        dropdown.addEventListener('change', function() {
+            const selectedComp = this.value.replace(/\//g, '---');
+            // Redirect to /refresh/COMP/CURRENTURL
+            window.location.href = `/refresh/${selectedComp}`;
+        });
+    }
+});
 
-title = f"Run Analysis: {args.comp}"
+function copyToClipboard() {
+    // Get the parent element of the button
+    const button = event.target;
+    const parentDiv = button.closest('div');
+
+    // Get all sibling P elements
+    const siblings = Array.from(parentDiv.children).filter(el => el.tagName === 'P');
+
+    // Extract innerHTML from each sibling, one per line
+    const text = siblings.map(el => el.innerHTML).join('\\n');
+
+    // Copy to clipboard
+    navigator.clipboard.writeText(text).then(function() {
+        // Visual feedback
+        const originalText = button.textContent;
+        button.textContent = '[Copied!]';
+        setTimeout(function() {
+            button.textContent = originalText;
+        }, 1500);
+    }).catch(function(err) {
+        console.error('Failed to copy: ', err);
+        alert('Failed to copy to clipboard');
+    });
+}
+"""
+        ),
+    ],
+)
+title = f"MathArena App"
 
 
 def get_problem_stats(results, model, problem):
@@ -204,66 +320,74 @@ def get_problem_stats(results, model, problem):
             "accuracy": 0,
         }
     nb_inst = len(corrects)
-    acc = sum(corrects) / nb_inst 
-    return {
-        "nb_instances": nb_inst,
-        "corrects": corrects,
-        "accuracy": acc,
-        "warnings": warnings
-    }
+    acc = sum(corrects) / nb_inst
+    return {"nb_instances": nb_inst, "corrects": corrects, "accuracy": acc, "warnings": warnings}
+
 
 def get_tick(is_correct, warning):
     if is_correct:
-        tick = '✅'
+        tick = "✅"
     elif not is_correct and warning == 0:
-        tick = '❌'
+        tick = "❌"
     elif warning >= 3:
-        tick = '💀'
+        tick = "💀"
     elif warning >= 2:
-        tick = '⚠️'
+        tick = "⚠️"
     else:
         # small warning
-        tick = '❕'
+        tick = "❕"
     return tick
+
 
 def get_problem_ticks(results, model, problem):
     stat = get_problem_stats(results, model, problem)
     ticks = ""
-    for i, correct in enumerate(stat['corrects']):
-        ticks += get_tick(correct, stat['warnings'][i])
+    for i, correct in enumerate(stat["corrects"]):
+        ticks += get_tick(correct, stat["warnings"][i])
     return ticks
 
+
 def get_model_stats(results, model):
-    res = results[model] 
+    res = results[model]
     nb_problems = len(res)
     problem_stats = {problem: get_problem_stats(results, model, problem) for problem in res.keys()}
-    stats = {'problem_stats': problem_stats.copy()}
-    stats['nb_problems'] = len(res)
+    stats = {"problem_stats": problem_stats.copy()}
+    stats["nb_problems"] = len(res)
     if nb_problems == 0:
-        stats['avg_accuracy'] = 0
+        stats["avg_accuracy"] = 0
     else:
-        stats['avg_accuracy'] = sum([stat['accuracy'] for stat in problem_stats.values()]) / nb_problems
-    return stats 
+        stats["avg_accuracy"] = sum([stat["accuracy"] for stat in problem_stats.values()]) / nb_problems
+    return stats
+
 
 def model_stats_to_html(stats):
-    problem_stats_html = [] 
-    for problem, stat in sorted(stats['problem_stats'].items(), key=lambda x: x[0]):
-        problem_full_name = str(problem) 
-        if problem in problem_names:
-            problem_full_name += f" ({problem_names[problem]})"
+    problem_stats_html = []
+    problem_stats_html.append(
+        A(
+            "📋",
+            href="javascript:void(0)",
+            cls="sidebar-item copy-button",
+            onclick="copyToClipboard()",
+        )
+    )
+    for problem, stat in sorted(stats["problem_stats"].items(), key=lambda x: x[0]):
+        problem_full_name = str(problem)
+        if problem in sources:
+            problem_full_name += f" ({sources[problem]})"
         p = f"{problem_full_name}:{' '*(30-len(str(problem_full_name)))}"
-        p += f"{stat['accuracy']*100:.2f}% " 
+        p += f"{stat['accuracy']*100:6.2f}% "
         p += f"({stat['nb_instances']} instances: "
-        for i, correct in enumerate(stat['corrects']):
+        for i, correct in enumerate(stat["corrects"]):
             p += get_tick(correct, stat["warnings"][i])
         p += ")"
-        logger.info(p)
+        print(p)
         problem_stats_html.append(P(p, cls="problem-stats"))
     stats_html = [
         P(f"Avg Acc: {stats['avg_accuracy']*100:.2f}% ({stats['nb_problems']} problems)", cls="strong"),
-        Div(*problem_stats_html)
+        Div(*problem_stats_html),
     ]
     return stats_html
+
 
 def parse_messages_response(response):
     # This is a list of messages
@@ -274,6 +398,7 @@ def parse_messages_response(response):
         else:
             response_str += "\n\n" + 30 * "=" + "User" + 30 * "=" + "\n\n" + response[i]["content"]
     return response_str
+
 
 def sanitize_response(response):
     response = response.replace("\\( ", "$")
@@ -287,134 +412,305 @@ def sanitize_response(response):
     response = response.replace("\\]", "$$")
     return response
 
+
 ###### results
 
-    
-@rt("/refresh/{url}")
-def get(url: str):
+
+@rt("/expand/{url}/{expanded}")
+def get(url: str, expanded: bool):
+    global boxes_expanded
+    boxes_expanded = expanded
+    # This endpoint redirects and uses JavaScript to inject CSS that removes max-height
+    # Since we can't persist state in a stateless redirect, we'll use a query parameter instead
+    if url == "" or url is None:
+        return Redirect(f"/")
+    url = "/view/" + url.replace(">>>", "/")
+    return Redirect(url)
+
+
+@rt("/refresh/{comp}/{url}")
+def get(comp: str, url: str):
+    global current_comp
+    current_comp = comp.replace("---", "/")
     global results
-    results = analyze_run(args.comp, args.models)
+    results = analyze_run(current_comp, args.models)
+    global sources
+    sources = load_sources(current_comp)
     # results = analyze_run(run_dir, args.models, args.problems)[0]
-    logger.info("Refreshed!")
+    print("Refreshed!")
     if url == "" or url is None:
         return Redirect("/")
-    url = '/view/' + url.replace('>>>', '/')
+    url = "/view/" + url.replace(">>>", "/")
     return Redirect(url)
+
 
 @rt("")
 def index():
-    # add button that calls /refresh 
-    links = [
-        A("[Reload All Data]", href="/refresh/", cls="sidebar-item reload-button strong"), 
-        A("Home", href="/", cls="sidebar-item strong")
-    ] 
-    for model in results.keys():
-        links.append(A(model, href=f"/view/{model}", cls="sidebar-item"))
+    # add dropdown with all comps
+    dropdown = Select(
+        *[Option(comp, value=comp, selected=(comp == current_comp)) for comp in all_comps],
+        id="comp-dropdown",
+        cls="sidebar-item",
+        name="comp-dropdown",
+    )
 
-    stats_html = [] 
+    # add button that calls /refresh
+    sidebar_contents = [
+        dropdown,
+        A(
+            "[Reload All Data]",
+            href=f"/refresh/{current_comp.replace('/', '---')}",
+            cls="sidebar-item reload-button strong",
+        ),
+        A("Home", href="/", cls="sidebar-item strong"),
+    ]
+    for model in results.keys():
+        sidebar_contents.append(A(model, href=f"/view/{model}", cls="sidebar-item"))
+
+    stats_html = []
     for model in results.keys():
         stats = get_model_stats(results, model)
         stats_html.append(H3(f"Model: {model}"))
         stats_html.append(Div(*model_stats_to_html(stats)))
-    
-    return Titled(title, Div(
-        Div(*links, cls="sidebar"),
+
+    return Titled(
+        title,
         Div(
-            Div(*stats_html),
-            cls="main"
+            Div(*sidebar_contents, cls="sidebar"), Div(Div(*stats_html), cls="main"), style="display: flex; width: 100%"
         ),
-        style="display: flex; width: 100%"
-    ))
+    )
+
 
 @rt("/view/{model}")
 def get(model: str):
-    logger.info("model: ", model)
+    # add dropdown with all comps
+    dropdown = Select(
+        *[Option(comp, value=comp, selected=(comp == current_comp)) for comp in all_comps],
+        id="comp-dropdown",
+        cls="sidebar-item",
+        name="comp-dropdown",
+    )
+    print("model: ", model)
     links = [
-        A("[Reload All Data]", href=f"/refresh/{model}", cls="sidebar-item reload-button strong"), 
-        A("Home", href="/", cls="sidebar-item strong")
-    ] 
+        dropdown,
+        A(
+            "[Reload All Data]",
+            href=f"/refresh/{current_comp.replace('/', '---')}/{model}",
+            cls="sidebar-item reload-button strong",
+        ),
+        A("Home", href="/", cls="sidebar-item strong"),
+    ]
     links.append(A(f"  {model}", href=f"/view/{model}", cls="sidebar-item strong current"))
 
     for problem in sorted(results[model].keys(), key=lambda x: int(x)):
         ticks = get_problem_ticks(results, model, problem)
         problem_full_name = str(problem)
-        if problem in problem_names:
-            problem_full_name += f" ({problem_names[problem]})"
+        if problem in sources:
+            problem_full_name += f" ({sources[problem]})"
         link_text = f"{problem_full_name} {ticks}"
         links.append(A(link_text, href=f"/view/{model}/{problem}", cls="sidebar-item"))
-    
+
     stats = get_model_stats(results, model)
     stats_html = Div(*model_stats_to_html(stats))
 
-    d = Div(*links[3:], cls="sidebar-list")
+    global boxes_expanded
+    d = Div(*links[3:], cls=f"sidebar-list expanded-{boxes_expanded}")
+
     sidebar = Div(*links[:3], d, cls="sidebar")
-    return Titled(title, Div(
-        sidebar,
+    return Titled(
+        title,
         Div(
-            H3(f"Model: {model}", style="text-align: left;"),
-            Div(stats_html),
-            cls="main"
+            sidebar,
+            Div(H3(f"Model: {model}", style="text-align: left;"), Div(stats_html), cls="main"),
+            style="display: flex; width: 100%",
         ),
-        style="display: flex; width: 100%"
-    ))
+    )
+
+
+def render_message(message):
+    boxes = []
+    # Prep tagline
+    role = message["role"]
+    if role == "developer":
+        tagline = "System Prompt / Developer Message"
+    elif role == "user":
+        tagline = "User"
+    elif role == "tool_response":
+        tool_name = message["tool_name"]
+        tool_call_id = message["tool_call_id"]
+        tagline = f"Response from Tool {tool_name} (Tool Call ID: {tool_call_id})"
+    elif role == "assistant":
+        typ = message.get("type")
+        if typ == "cot":
+            tagline = "Assistant (Chain-of-Thought)"
+        elif typ == "response":
+            tagline = "Assistant"
+        elif typ == "tool_call":
+            tool_name = message["tool_name"]
+            tool_call_id = message["tool_call_id"]
+            tagline = f"Assistant (Tool Call to {tool_name}, Tool Call ID: {tool_call_id})"
+        elif typ == "internal_tool_call":
+            tool_name = message["tool_name"]
+            assert tool_name == "code_interpreter"
+            tagline = f"Assistant (Internal Tool Call to {tool_name})"
+            # NOTE: only code_interpreter supported
+        else:
+            raise ValueError(f"Unknown assistant type: {typ}")
+    else:
+        raise ValueError(f"Unknown role: {role}")
+
+    # Prep content
+    if role == "assistant" and typ in ["tool_call", "internal_tool_call"]:
+        if typ == "tool_call":
+            arguments = message.get("arguments", {})
+            for k, v in arguments.items():
+                if k != "code":
+                    tagline += f" ({k}: {v})"
+            if "code" in arguments:
+                code = arguments["code"]
+            else:
+                code = None
+        else:
+            code = message.get("code", None)
+
+        if code is not None:
+            code = code.replace("```python", "").replace("```", "").strip()
+            code = Pre(Code(code), cls=f"language-python marked box response-box code")
+            content = code
+    else:
+        content = message.get("content", "")
+        if isinstance(content, str):
+            content = Div(content, cls=f"marked box response-box {role}")
+        else:
+            # Fish for image and text
+            assert isinstance(content, list)
+            text, img = None, None
+            for c in content:
+                if c["type"] in ["text", "input_text"]:
+                    text = c["text"]
+                elif c["type"] == "input_image":
+                    img = c["image_url"]
+                elif c["type"] == "image_url":
+                    img = c["image_url"]["url"]
+
+            content = []
+            if text is not None:
+                content.append(text)
+            if img is not None:
+                content.append(Img(src=img, cls="problem-image"))
+            content = Div(*content, cls=f"marked box response-box {role} conversation-content")
+
+    # Return boxes
+    boxes.append(Div(tagline, cls="strong", style="margin-top: 1rem; margin-bottom: 0.5rem;"))
+    boxes.append(content)
+    return boxes
+
 
 @rt("/modelinteraction/{id}")
-def get(id: str): #model>>problemname>>id
-    model, problem_name, i = id.split(">>")
-    entry = results[model][int(problem_name)]["messages"][int(i)]
+def get(id: str):  # model>>problemname>>id
+    """
+    See normalize_conversation in utils.py for the format
+    """
+    boxes = []
+    tokens = id.split(">>")
+    if len(tokens) == 4:
+        model, problem_name, i, extra = tokens
+        assert extra == "history"
+        history = results[model][int(problem_name)]["history"][int(i)]
 
-    entry = {"response": entry}
+        # Create dropdown with all steps
+        dropdown_options = []
+        dropdown_options.append(Option("Select a step...", value=""))
+        for step in history:
+            stp = step["step"]
+            timestep = step["timestep"]
+            dropdown_options.append(
+                Option(f"TIME={timestep} 🕐 {stp}", value=f"{model}>>{problem_name}>>{i}>>{timestep}>>{stp}")
+            )
 
-    if type(entry["response"]) == list and not isinstance(entry["response"][0], dict):
-        response = "\n\n".join(entry["response"])
-        response = sanitize_response(response)
-        response_box = Div(response, cls="marked box response-box")
-        return response_box
+        dropdown = Select(*dropdown_options, id="history-step-selector", onchange="loadHistoryStep(this.value)")
+        boxes.append(dropdown)
+
+        # Container for dynamically loaded step content
+        boxes.append(Div(id="history-step-content", style="margin-top: 1rem;"))
+
     else:
-        responses = entry["response"]
-        response_boxes = []
-        for response in responses:
-            role, content, type_ = response["role"], response["content"], response.get("type", "")
-            if type(content) == list:
-                content = "\n".join(content)
-            response = sanitize_response(content)
-            response_boxes.append(P(f"Role: {role}", cls="strong"))
+        model, problem_name, i = tokens
+        conversation = results[model][int(problem_name)]["messages"][int(i)]
+        for message in conversation:
+            boxes.extend(render_message(message))
+    return Div(*boxes)
 
-            if role == 'code' or role == "tool" or type_ == "code_interpreter_call":
-                # try to parse it as a dict
-                try:
-                    response_dict = json.loads(response)
-                    if "tool_name" in response_dict and response_dict["tool_name"] == "execute_code":
-                        code = response_dict["tool_arguments"]["code"]
-                    else:
-                        code = response
-                except:
-                    code = response
-                response = code.replace('```python','').replace('```', '').strip()
-                response = Pre(Code(code), cls=f"language-python marked box response-box code")
-            else:
-                response = Div(response, cls=f"marked box response-box {role}")
-            response_boxes.append(response)
-        return Div(*response_boxes)
+
+@rt("/historystep/{id}")
+def get(id: str):  # model>>problemname>>i>>timestep>>step
+    """
+    Returns the conversation for a specific history step
+    """
+    tokens = id.split(">>")
+    model, problem_name, i, timestep_str, step_name = tokens
+    timestep = int(timestep_str)
+
+    history = results[model][int(problem_name)]["history"][int(i)]
+
+    # Find the step with matching timestep and step name
+    target_step = None
+    for step in history:
+        if step["timestep"] == timestep and step["step"] == step_name:
+            target_step = step
+            break
+
+    if target_step is None:
+        return Div("Step not found", cls="error")
+
+    boxes = []
+
+    conversation = target_step["messages"]
+    for message in conversation:
+        boxes.extend(render_message(message))
+
+    return Div(*boxes)
 
 
 @rt("/view/{model}/{problem_name}")
 def get(model: str, problem_name: str):
-    logger.info("model: ", model, "problem_name: ", problem_name)
+    # add dropdown with all comps
+    dropdown = Select(
+        *[Option(comp, value=comp, selected=(comp == current_comp)) for comp in all_comps],
+        id="comp-dropdown",
+        cls="sidebar-item",
+        name="comp-dropdown",
+    )
+    global boxes_expanded
+    print("model: ", model, "problem_name: ", problem_name, "boxes_expanded: ", boxes_expanded)
+    if boxes_expanded:
+        toggle_text = "[Make Boxes Scrollable]"
+    else:
+        toggle_text = "[Make Boxes Very Tall]"
     links = [
-        A("[Reload All Data]", href=f"/refresh/{model}>>>{problem_name}", cls="sidebar-item reload-button strong"), 
-        A("Home", href="/", cls="sidebar-item strong")
-    ] 
+        dropdown,
+        A(
+            toggle_text,
+            href=f"/expand/{model}>>>{problem_name}/{not boxes_expanded}",
+            cls="sidebar-item reload-button strong",
+        ),
+        A(
+            "[Reload All Data]",
+            href=f"/refresh/{current_comp.replace('/', '---')}/{model}>>>{problem_name}",
+            cls="sidebar-item reload-button strong",
+        ),
+        A("Home", href="/", cls="sidebar-item strong"),
+    ]
     links.append(A(f"  {model}", href=f"/view/{model}", cls="sidebar-item strong"))
     for problem in sorted(results[model].keys(), key=lambda x: int(x)):
         ticks = get_problem_ticks(results, model, problem)
         cls = "sidebar-item" if problem != problem_name else "sidebar-item current"
         problem_full_name = str(problem)
-        if problem in problem_names:
-            problem_full_name += f" ({problem_names[problem]})"
+        if problem in sources:
+            problem_full_name += f" ({sources[problem]})"
         link_text = f"{problem_full_name} {ticks}"
         links.append(A(link_text, href=f"/view/{model}/{int(problem)}", cls=cls))
-    ticks = get_problem_ticks(results, model, problem_name) # my ticks
+    ticks = get_problem_ticks(results, model, problem_name)  # my ticks
 
     res = results[model][int(problem_name)]
     instances_html = []
@@ -428,23 +724,24 @@ def get(model: str, problem_name: str):
 
     instances_html = []
     problem_idx = int(problem_name)
-    img_path = f"/data/{args.comp}/images/problem_{problem_idx}.png"
+    img_path = f"/data/{current_comp}/problems/{problem_idx}.png"
     if os.path.exists(img_path[1:]):
-        instances_html.append(Div(problem_statement, Img(src=img_path, cls="problem-image"), cls="marked box problem-box"))
+        instances_html.append(
+            Div(problem_statement, Img(src=img_path, cls="problem-image"), cls="marked box problem-box")
+        )
     else:
         instances_html.append(Div(problem_statement, cls="marked box problem-box"))
-    
+
     solution = res["gold_answer"]
     instances_html.append(Div(solution, cls="marked box solution-box"))
 
     for i, messages in enumerate(res["messages"]):
         curr_html = []
-        # Lazy population 
-        #extras = {'id': f"{model}>>{problem_name}"}
+        # Lazy population
+        # extras = {'id': f"{model}>>{problem_name}"}
 
         # curr_html.append(Details(Summary("Model Interaction:"), cls="response-box-details strong", **extras))
-        
-        
+
         # if not is_correct:
         #     curr_html.append(P(f"Parsecheck Details:", cls="strong"))
         #     curr_html.append(Div(parsecheck_details, cls=f"box details-box {correct_cls}"))
@@ -456,24 +753,29 @@ def get(model: str, problem_name: str):
         if answer is None:
             answer = "No answer found in \\boxed{}. Model was instructed to output answer in \\boxed{}."
         verdict = get_tick(is_correct, warning)
-        logger.info(verdict)
+        print(verdict)
         correct_cls = "correct" if is_correct else "incorrect"
 
         curr_html.append(Div(cls=f"fake-hr"))
-        extras = {'id': f"{model}>>{problem_name}>>{i}"}
-        curr_html.append(Details(Summary(f"[Try #{i}] Model Interaction:"), cls="response-box-details strong", **extras))
-        curr_html.append(P(f"[Try #{i}] Parsed Answer ({verdict}, {warning} warnings):", cls="strong"))
+
+        history = results[model][int(problem_name)].get("history", None)
+        if history is not None and len(history) > 0 and history[0] is not None:
+            extras = {"id": f"{model}>>{problem_name}>>{i}>>history"}
+            curr_html.append(Details(Summary(f"[Run {i}] History:"), cls="response-box-details strong", **extras))
+        extras = {"id": f"{model}>>{problem_name}>>{i}"}
+        curr_html.append(Details(Summary(f"[Run {i}] Conversation:"), cls="response-box-details strong", **extras))
+
+        curr_html.append(P(f"[Run {i}] Parsed Answer ({verdict}, {warning} warnings):", cls="strong"))
         curr_html.append(Div(answer, cls=f"box answer-box {correct_cls}"))
 
         instances_html.append(Div(*curr_html))
 
-
-    # for i, entry in enumerate(res): 
+    # for i, entry in enumerate(res):
     #     try:
     #         problem_class = problem_classes[problem_name]
     #         instance = problem_class.from_json(entry["problem"])
     #     except Exception as e:
-    #         logger.info(f"Error parsing an instance of the problem {problem_name}: {e}")
+    #         print(f"Error parsing an instance of the problem {problem_name}: {e}")
     #         continue
     #     answer, is_correct = entry["answer"], entry["is_correct"]
     #     verdict = "✅" if is_correct else "❌"
@@ -494,10 +796,10 @@ def get(model: str, problem_name: str):
     #         curr_html.append(P(f"Our Solution:", cls="strong"))
     #         curr_html.append(Div(solution, cls="marked box solution-box"))
 
-    #     # Lazy population 
+    #     # Lazy population
     #     extras = {'id': f"{model}>>{problem_name}>>{i}"}
     #     curr_html.append(Details(Summary("Model Interaction:"), cls="response-box-details strong", **extras))
-        
+
     #     curr_html.append(P(f"Parsed Answer ({verdict}):", cls="strong"))
     #     curr_html.append(Div(answer, cls=f"box answer-box {correct_cls}"))
     #     if not is_correct:
@@ -505,17 +807,20 @@ def get(model: str, problem_name: str):
     #         curr_html.append(Div(parsecheck_details, cls=f"box details-box {correct_cls}"))
 
     #     instances_html.append(Div(*curr_html))
-    
+
     # Add script to scroll to current item
-    mathjaxsetup=Script("""
+    mathjaxsetup = Script(
+        """
         window.MathJax = {
         tex: {
             inlineMath: [['$', '$']]
         }
         };
-    """)
-    mathjax=Script(id="MathJax-script", src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js")
-    scroll_and_lazyfetch_script = Script("""        
+    """
+    )
+    mathjax = Script(id="MathJax-script", src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js")
+    scroll_and_lazyfetch_script = Script(
+        """
         document.addEventListener('DOMContentLoaded', function() {
             const current = document.querySelector('.sidebar-item.current');
             if (current) {
@@ -532,7 +837,10 @@ def get(model: str, problem_name: str):
                             fetch(`/modelinteraction/${idd}`)  // Assuming you have a backend route to handle this
                                 .then(response => response.text())
                                 .then(data => {
-                                    event.target.innerHTML += data; // Append or replace this with actual structure
+                                    const wrapper = document.createElement('div');
+                                    wrapper.className = 'conversation-content';
+                                    wrapper.innerHTML = data;
+                                    event.target.appendChild(wrapper);
                                     event.target.setAttribute('data-loaded', true); // Mark as loaded
                                     MathJax.typesetPromise();
 
@@ -544,34 +852,68 @@ def get(model: str, problem_name: str):
                 });
             });
         });
-    """)
 
-    highlightjs_css = Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css")
+        function loadHistoryStep(stepId) {
+            if (!stepId) {
+                document.getElementById('history-step-content').innerHTML = '';
+                return;
+            }
 
-    highlightjs = Script(id="HighlightJS", src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js")
+            fetch(`/historystep/${stepId}`)
+                .then(response => response.text())
+                .then(data => {
+                    document.getElementById('history-step-content').innerHTML = data;
+                    MathJax.typesetPromise();
+                    hljs.highlightAll();
+                })
+                .catch(error => {
+                    console.error('Error fetching history step:', error);
+                    document.getElementById('history-step-content').innerHTML = '<div class="error">Error loading step</div>';
+                });
+        }
+    """
+    )
 
-    d = Div(*links[3:], cls="sidebar-list")
+    highlightjs_css = Link(
+        rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css"
+    )
+
+    highlightjs = Script(
+        id="HighlightJS", src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"
+    )
+
+    d = Div(*links[3:], cls=f"sidebar-list expanded-{int(boxes_expanded)}")
     sidebar = Div(*links[:3], d, cls="sidebar")
     problem_full_name = str(problem_name)
-    if int(problem_name) in problem_names:
-        # TODO very ugly variable naming :) 
-        problem_full_name += f" ({problem_names[int(problem_name)]})"
-    return Titled(title, Div(
-        mathjaxsetup,
-        mathjax,
-        highlightjs_css,
-        highlightjs,
-        sidebar,
-        scroll_and_lazyfetch_script,
+    if int(problem_name) in sources:
+        problem_full_name += f" ({sources[int(problem_name)]})"
+
+    # Add CSS to remove max-height if expanded parameter is True
+    extra_elements = [mathjaxsetup, mathjax, highlightjs_css, highlightjs, sidebar, scroll_and_lazyfetch_script]
+    if boxes_expanded:
+        expand_style = Style(
+            """
+            .box {
+                max-height: none !important;
+            }
+        """
+        )
+        extra_elements.insert(0, expand_style)
+
+    return Titled(
+        title,
         Div(
-            H3(f"Model: {model}", style="text-align: left;"),
-            H3(f"Problem: {problem_full_name} {ticks}", style="text-align: left;"),
-            *instances_html,
-            cls="main"
+            *extra_elements,
+            Div(
+                H3(f"Model: {model}", style="text-align: left;"),
+                H3(f"Problem: {problem_full_name} {ticks}", style="text-align: left;"),
+                *instances_html,
+                cls="main",
+            ),
+            style="display: flex; width: 100%",
         ),
-        style="display: flex; width: 100%"
-    ))
+    )
+
 
 ###
 serve(reload=True, port=args.port)
-

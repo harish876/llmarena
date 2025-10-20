@@ -19,6 +19,11 @@ date:
   '958': '2025-08-30'
   '959': '2025-09-07'
   '960': '2025-09-14'
+  '961': '2025-09-21'
+  '962': '2025-09-28'
+  '963': '2025-10-05'
+  '964': '2025-10-12'
+  '965': '2025-10-18'
 instruction: "You are solving a problem from Project Euler. \nAs a tool you can use,\
   \ you are given access to a code execution environment. Invoke that tool to execute\
   \ Python or C++ code. You can execute code up to 20 times, so you can use them quite\
@@ -33,14 +38,10 @@ instruction: "You are solving a problem from Project Euler. \nAs a tool you can 
   \ answer within \\boxed{{}}, i.e., end your reply with \"### Final answer: \\\\\
   boxed{{your_answer_here}}\".\n"
 max_tool_calls: 20
-n_problems: 18
+n_problems: 23
 strict_parsing: false
 tools:
-- openai_responses_tool:
-    container:
-      type: auto
-    type: code_interpreter
-  tool:
+- tool_spec:
     function:
       description: 'Executes the code in the given language and returns the standard
         output and standard error. Your code is always executed as a self-contained
@@ -61,3 +62,7 @@ tools:
         - lang
         type: object
     type: function
+  tool_spec_openai_responses_api:
+    container:
+      type: auto
+    type: code_interpreter

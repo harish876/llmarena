@@ -1,15 +1,20 @@
 """This module provides functionality for executing code in a sandboxed environment."""
 
-import modal
 import time
 
+import modal
+from loguru import logger
+
 PY_LIBRARIES = [
-    "pandas", "numpy", "scikit-learn", "sympy", "gmpy2",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "sympy",
+    "gmpy2",
 ]
 
-EXEC_TIMEOUT = 120
 
-def execute_code(code, lang):
+def execute_code(code, lang, exec_timeout=120):
     """Executes code in a sandboxed environment and returns the output.
 
     Args:
@@ -21,20 +26,21 @@ def execute_code(code, lang):
     """
     code_runner = CodeRunner()
     if lang == "python":
-        output = code_runner.execute_python_code(code)
+        output = code_runner.execute_python_code(code, exec_timeout)
     elif lang == "cpp":
-        output = code_runner.execute_cpp_code(code)
+        output = code_runner.execute_cpp_code(code, exec_timeout)
     code_runner.terminate()
 
     if len(output["stdout"]) > 10000:
         output["stdout"] = output["stdout"][:10000] + "\n...<truncated>\n"
     if len(output["stderr"]) > 10000:
         output["stderr"] = output["stderr"][:10000] + "\n...<truncated>\n"
-    if output["time"] > EXEC_TIMEOUT:
-        info = f"\n\nExecution time exceeded the timeout of {EXEC_TIMEOUT} seconds."
+    if output["time"] > exec_timeout:
+        info = f"\n\nExecution time exceeded the timeout of {exec_timeout} seconds."
     else:
         info = f"\n\nExecution time: {output['time']} seconds."
     return "stdout:\n" + output["stdout"] + "\nstderr:\n" + output["stderr"] + "\n" + info
+
 
 class CodeRunner:
     """A class for running code in a sandboxed environment."""
@@ -56,7 +62,7 @@ class CodeRunner:
         self.n_exec = 0
         self.n_retries = n_retries
 
-    def execute_python_code(self, code):
+    def execute_python_code(self, code, exec_timeout):
         """Writes Python code to a file, executes it and returns the result.
 
         Args:
@@ -77,7 +83,7 @@ class CodeRunner:
                 f.close()
 
                 time_start = time.time()
-                p = self.sandbox.exec("bash", "-c", f"python {filename}", timeout=EXEC_TIMEOUT)
+                p = self.sandbox.exec("bash", "-c", f"python {filename}", timeout=exec_timeout)
                 self.n_exec += 1
 
                 output = {
@@ -87,10 +93,11 @@ class CodeRunner:
                 output["time"] = time.time() - time_start
                 return output
             except Exception as e:
+                logger.warning(f"Error executing Python code: {e}")
                 time.sleep(1)
         raise Exception("Failed to execute code")
 
-    def execute_cpp_code(self, code):
+    def execute_cpp_code(self, code, exec_timeout):
         """Writes C++ code to a file, compiles it and returns the result.
 
         Args:
@@ -111,7 +118,9 @@ class CodeRunner:
                 f.close()
 
                 time_start = time.time()
-                p = self.sandbox.exec("bash", "-c", f"g++ {filename} -o {filename}.out && ./{filename}.out", timeout=EXEC_TIMEOUT)
+                p = self.sandbox.exec(
+                    "bash", "-c", f"g++ {filename} -o {filename}.out && ./{filename}.out", timeout=exec_timeout
+                )
                 time_end = time.time()
                 self.n_exec += 1
 
@@ -119,9 +128,10 @@ class CodeRunner:
                     "stdout": p.stdout.read(),
                     "stderr": p.stderr.read(),
                 }
-                output["time"] = time.time() - time_start
+                output["time"] = time_end - time_start
                 return output
             except Exception as e:
+                logger.warning(f"Error executing C++ code: {e}")
                 time.sleep(1)
         raise Exception("Failed to execute code")
 

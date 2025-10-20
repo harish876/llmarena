@@ -1,11 +1,11 @@
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 import pandas as pd
 import os
 import json
 from matharena.configs import load_configs
 from loguru import logger
 import yaml
-
+import shutil
 
 
 if __name__ == "__main__":
@@ -15,11 +15,24 @@ if __name__ == "__main__":
     parser.add_argument("--repo-name", type=str, help="Hugging Face repo name", required=True)
     parser.add_argument("--comp", type=str, help="Competition name", required=True)
     parser.add_argument("--output-folder", type=str, default="outputs", help="Output directory for the dataset")
+    parser.add_argument("--data-folder", type=str, default="data", help="Output directory for the dataset")
+
     parser.add_argument("--configs-folder", type=str, default="configs/models", help="Directory containing the configs of the models")
     parser.add_argument("--competition-configs-folder", type=str, default="configs/competitions", help="Directory containing the configs")
     parser.add_argument("--public", action="store_true", help="Make the dataset public (not advised, best to keep it private and manually share)")
+    parser.add_argument("--visual-dataset", action="store_true", help="Upload visual dataset with images")
 
     args = parser.parse_args()
+
+    if args.visual_dataset:
+        # make temp folder
+        os.makedirs("temp", exist_ok=True)
+        # add all images from data/<comp>/problems to temp
+        problem_folder = os.path.join(args.data_folder, args.comp, "problems")
+        for problem_file in os.listdir(problem_folder):
+            temp_problem_file = os.path.join("temp", problem_file)
+            shutil.copy(os.path.join(problem_folder, problem_file), temp_problem_file)
+
 
     folder = os.path.join(args.output_folder, args.comp)
 
@@ -34,12 +47,14 @@ if __name__ == "__main__":
         if not os.path.exists(folder_model):
             logger.info(f"Folder {folder_model} does not exist, skipping...")
             continue
-
-        if "model_config" in configs[config_path]:
-            config_model = configs[configs[config_path]["model_config"].replace("models/", "")]
-            configs[config_path]["read_cost"] = config_model["read_cost"]
-            configs[config_path]["write_cost"] = config_model["write_cost"]
-            
+        
+        try:
+            if "model_config" in configs[config_path]:
+                config_model = configs[configs[config_path]["model_config"].replace("models/", "")]
+                configs[config_path]["read_cost"] = config_model["read_cost"]
+                configs[config_path]["write_cost"] = config_model["write_cost"]
+        except:
+            continue
         # list all files in the folder
         problem_files = os.listdir(folder_model)
         for file in problem_files:
@@ -47,11 +62,12 @@ if __name__ == "__main__":
             problem_name = file.split(".")[0]
             data = json.load(open(file_name, "r"))
             gold_answer = data["gold_answer"]
-            problem = data["problem"]
+            problem = data["problem"] if not args.visual_dataset else f"{problem_name}.png"
+            problem_key = "problem" if not args.visual_dataset else "file_name"
             for i in range(len(data["messages"])):
                 default_dict = {
                     "problem_idx": problem_name,
-                    "problem": problem,
+                    problem_key: problem,
                     "model_name": configs[config_path]["human_readable_id"],
                     "model_config": config_path,
                     "idx_answer": i,
@@ -92,11 +108,24 @@ if __name__ == "__main__":
     if "source" in df.columns:
         df = df[df["source"].apply(lambda x: "smt" not in x.lower())]
     
-    dataset = Dataset.from_pandas(df)
-    dataset.push_to_hub(
-        os.path.join(args.org, args.repo_name),
-        private=not args.public,
-    )
+    if not args.visual_dataset:
+        logger.info(f"Uploading dataset with {len(df)} samples to dataset {args.repo_name} in org {args.org}")
+        dataset = Dataset.from_pandas(df)
+        dataset.push_to_hub(
+            os.path.join(args.org, args.repo_name),
+            private=not args.public,
+        )
+    else:
+        df.to_csv(os.path.join("temp", "metadata.csv"), index=False)
+        logger.info(f"Uploading visual dataset with {len(df)} samples to dataset {args.repo_name} in org {args.org}")
+        dataset = load_dataset("imagefolder", data_dir="temp")
+        dataset["train"].push_to_hub(
+            os.path.join(args.org, args.repo_name),
+            private=not args.public,
+        )
+
+        # remove temp folder
+        shutil.rmtree("temp")
 
 
 

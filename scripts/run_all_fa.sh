@@ -12,14 +12,10 @@ for comp in "${COMPS[@]}"; do
   echo "Running on $comp with model $MODEL"
   python scripts/run.py \
     --comp "$comp" \
-    --configs "$MODEL" \
-    --skip-existing \
-    --recompute-tokens
+    --models "$MODEL"
 done
 
 python scripts/run.py \
     --comp "apex/apex_2025" \
-    --configs "$MODEL" \
-    --skip-existing \
-    --recompute-tokens \
+    --models "$MODEL" \
     --n 16
