@@ -7,6 +7,7 @@ import scipy.stats as st
 from human_score_data import human_scores
 import yaml
 from datetime import datetime
+import os
 np.random.seed(42)
 
 def get_latex_model_name(model):
@@ -122,6 +123,10 @@ if __name__ == "__main__":
     parser.add_argument("--only-intersection", action="store_true", help="Only keep the intersection of configs")
     parser.add_argument("--no-cost", action="store_true", help="Do not compute cost")
     parser.add_argument("--human-quantiles", type=float, nargs="+", default=[])
+    parser.add_argument("--output-format", type=str, choices=["table", "latex"], default="table",
+                        help="Format for final printed results")
+    parser.add_argument("--exclude-models", type=str, nargs="+", default=[],
+                        help="Exclude configs whose YAML filename contains any of these substrings")
 
     args = parser.parse_args()
 
@@ -131,6 +136,18 @@ if __name__ == "__main__":
     all_existing_configs = get_intersection_configs(args.comps, args.output_folder,
                                                     args.configs_folder, args.competition_config_folder, 
                                                     intersection=args.only_intersection)
+    # Optionally exclude configs by substring match on YAML filename (basename without path)
+    if args.exclude_models:
+        def should_exclude(config_path: str) -> bool:
+            base = os.path.basename(config_path).lower()  # e.g., "gpt-5.yaml" -> from path part
+            # config_path currently excludes extension in usage; match on this string regardless
+            return any(exclude.lower() in base or exclude.lower() in config_path.lower()
+                       for exclude in args.exclude_models)
+
+        all_existing_configs = {
+            config_path: name for config_path, name in all_existing_configs.items()
+            if not should_exclude(config_path)
+        }
     competition_dates = {
         comp: yaml.safe_load(open(f"{args.competition_config_folder}/{comp}.yaml", "r"))["date"] for comp in args.comps
     }
@@ -184,7 +201,11 @@ if __name__ == "__main__":
                 extra[comp.split("/")[1].split("_")[0].upper()] = cellcolor + str(avg_scores[config_path][comp])
         avg_cost_model = np.mean([score for score in avg_cost[config_path].values() if score != "N/A"])
         if avg_cost_model < 5 * 1e-3:
-            avg_cost_model = "{$<10^{-2}$}"
+            if args.output_format == "latex":
+                avg_cost_model = "{$<10^{-2}$}"
+            else:
+                avg_cost_model = avg_cost_model
+                
         avg_score = np.mean([score for score in avg_scores[config_path].values() if score not in ["{N/A}", "N/A"]])
         if not args.keep_comps:
             avg_score *= 100
@@ -193,8 +214,13 @@ if __name__ == "__main__":
         if args.compute_variance:
             start_score = "$"
             deviation_string = f"\\pm {deviations[config_path] * 100:.1f}$"
+        model_display_name = (
+            get_latex_model_name(all_existing_configs[config_path])
+            if args.output_format == "latex"
+            else all_existing_configs[config_path]
+        )
         final_df.append({
-            "Model": get_latex_model_name(all_existing_configs[config_path]),
+            "Model": model_display_name,
             **extra,
             "Rank": f"{rank_quantiles[config_path][0]}-{rank_quantiles[config_path][1]}",
             "Acc (avg)": f"{start_score} {avg_score:.2f} {deviation_string}",
@@ -220,9 +246,24 @@ if __name__ == "__main__":
     final_df = pd.DataFrame(final_df)
     # sort by acc
     final_df = final_df.sort_values(by="acc", ascending=False)
+    # reset index to be 1-based after sorting
+    final_df.index = np.arange(1, len(final_df) + 1)
     final_df.to_json(args.save_file, orient="records", lines=True)
     del final_df["acc"]
-    # print as latex table
-    # all column names -> {\textbf{name}}
-    final_df.columns = [f"{{\\textbf{{{col}}}}}" for col in final_df.columns]
-    print(final_df.to_latex(index=False))
+    # print final results in requested format
+    if args.output_format == "latex":
+        df_latex = final_df.copy()
+        # all column names -> {\textbf{name}}
+        df_latex.columns = [f"{{\\textbf{{{col}}}}}" for col in df_latex.columns]
+        print(df_latex.to_latex(index=False))
+    else:
+        # pretty console table
+        pd.set_option("display.max_colwidth", None)
+        pd.set_option("display.width", 200)
+        try:
+            from tabulate import tabulate
+            # show 1-based index in the console table
+            print(tabulate(final_df, headers="keys", tablefmt="grid", showindex=True))
+        except Exception:
+            # Fallback if tabulate is unavailable
+            print(final_df.to_string(index=True))

@@ -1,0 +1,9 @@
+model: deepseek/deepseek-v3.1-terminus
+api: openrouter
+max_tokens: 64000
+temperature: 0.6
+top_p: 0.95
+read_cost: 0.23
+write_cost: 0.90
+human_readable_id: DeepSeek-v3.1-Terminus
+date: "2025-08-21"

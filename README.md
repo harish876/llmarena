@@ -260,6 +260,52 @@ uv run python scripts/curation/judge_parser.py --comp aime/aime_2025
 ```
 This will verify and check all decisions by the rule-based parser using Gemini-Flash-2.5. Outputs where the model disagrees with the parser are logged in `logs/parser_judge`.
 
+To upload outputs to S3 for access by other microservices, you can use:
+```bash
+uv run python scripts/curation/upload_outputs_s3.py upload --bucket your-bucket-name --outputs-dir outputs
+```
+This script supports optional filters to upload specific competitions, providers, or models:
+- `--competition`: Filter by competition name (e.g., `aime`)
+- `--provider`: Filter by provider (e.g., `bedrock`, `openrouter`)
+- `--model`: Filter by model name
+- `--s3-prefix`: Custom S3 prefix (default: `outputs`)
+- `--region`: AWS region (default: `us-east-1`)
+
+You can also list existing files in S3:
+```bash
+uv run python scripts/curation/upload_outputs_s3.py list --bucket your-bucket-name
+```
+
+Ensure AWS credentials are configured via environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) or AWS credentials file.
+
+### Testing Models
+
+To test a single model configuration with a custom prompt, you can use:
+```bash
+uv run python scripts/openrouter/test_model.py path/to/model_config --prompt-file path/to/prompt.txt
+```
+
+**Arguments:**
+- `model_config`: Path to model config file (relative to `configs/models/` or absolute path). Can be specified with or without `.yaml` extension.
+- `--prompt-file`: Optional path to a prompt file. The file can be either:
+  - Plain text: Contains the prompt directly
+  - YAML: Contains `prompt: "your prompt here"`
+- `--prompt`: Optional inline prompt text (overrides `--prompt-file` if provided)
+
+**Examples:**
+```bash
+# Test with default prompt
+uv run python scripts/openrouter/test_model.py openrouter/gpt-4o
+
+# Test with prompt file
+uv run python scripts/openrouter/test_model.py openrouter/gpt-4o --prompt-file my_prompt.txt
+
+# Test with inline prompt
+uv run python scripts/openrouter/test_model.py openrouter/gpt-4o.yaml --prompt "What is 2+2?"
+```
+
+The script works with any model API (OpenRouter, OpenAI, Anthropic, etc.) as long as the config file specifies the correct `api` field and the corresponding API key environment variable is set.
+
 ### Extraction
 This folder contains scripts that extract the answers from the raw data and creates plots and a leaderboard.
 

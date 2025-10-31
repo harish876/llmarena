@@ -1,0 +1,14 @@
+model: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+api: bedrock
+max_tokens: 64000
+concurrent_requests: 16
+temperature: 1
+top_p: null
+read_cost: 3
+write_cost: 15
+batch_processing: false
+human_readable_id: Claude-Sonnet-4.5 (Think)
+date: "2025-09-29"
+thinking:
+  type: enabled 
+  budget_tokens: 32000

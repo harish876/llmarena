@@ -1,0 +1,10 @@
+model: o4-mini
+api: openrouter
+max_tokens: 100000
+read_cost: 1.1
+write_cost: 4.4
+concurrent_requests: 10
+human_readable_id: o4-mini
+batch_processing: false
+use_openai_responses_api: true
+date: "2025-04-16"

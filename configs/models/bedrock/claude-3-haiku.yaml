@@ -1,0 +1,8 @@
+model: us.anthropic.claude-3-haiku-20240307-v1:0
+api: bedrock
+max_tokens: 4000
+concurrent_requests: 30
+read_cost: 0.8
+write_cost: 4
+human_readable_id: Claude-3-Haiku (Bedrock)
+date: "2024-03-07"

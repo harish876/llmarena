@@ -1,0 +1,8 @@
+model: us.amazon.nova-premier-v1:0
+api: bedrock
+max_tokens: 4000
+concurrent_requests: 10
+read_cost: 2.50
+write_cost: 12.50
+human_readable_id: Amazon Nova Premier (Bedrock)
+date: "2024-12-19"

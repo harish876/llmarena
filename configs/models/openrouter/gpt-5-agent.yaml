@@ -1,0 +1,4 @@
+type: agent
+model_config: models/openrouter/gpt-5
+scaffold_config: agent_scaffolds/selfcheck
+human_readable_id: GPT-5 (High) Agent

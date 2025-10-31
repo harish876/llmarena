@@ -1,4 +1,4 @@
-model: qwen/qwen3-235b-a22b
+model: qwen/qwen3-235b-a22b:free
 api: openrouter
 max_tokens: 32000
 temperature: 0.6
@@ -8,3 +8,4 @@ read_cost: 0.2
 write_cost: 0.6
 human_readable_id: Qwen3-235B-A22B
 date: "2025-04-29"
+meta_model_type: "hybrid"

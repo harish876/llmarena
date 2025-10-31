@@ -7,6 +7,8 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from boto3.session import Config
+
 import anthropic
 import requests
 from anthropic.types import TextBlock, ThinkingBlock
@@ -17,9 +19,21 @@ from openai import OpenAI, RateLimitError
 from together import Together
 from tqdm import tqdm
 from transformers import AutoTokenizer
+from dotenv import load_dotenv
 
 from matharena.request_logger import request_logger
 from matharena.utils import check_for_extra_keys
+
+
+load_dotenv()
+
+try:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError
+except ImportError:
+    boto3 = None
+    ClientError = None
+    NoCredentialsError = None
 
 try:
     from vllm import LLM, SamplingParams
@@ -59,7 +73,7 @@ class APIClient:
             model (str): The name of the model to use.
             timeout (int, optional): The timeout for API requests in seconds. Defaults to 9000.
             max_tokens (int, optional): The maximum number of tokens to generate. Defaults to None.
-            api (str, optional): The API to use. Defaults to 'openai'.
+            api (str, optional): The API to use. Supported: 'openai', 'anthropic', 'together', 'google', 'xai', 'glm', 'deepseek', 'openrouter', 'bedrock', 'vllm'. Defaults to 'openai'.
             max_retries (int, optional): The maximum number of retries for a failed query. Defaults to 50.
             concurrent_requests (int, optional): The number of concurrent requests to make. Defaults to 30.
             no_system_messages (bool, optional): Whether to disable system messages. Defaults to False.
@@ -208,12 +222,20 @@ class APIClient:
             if "via_openai" in self.kwargs:
                 del self.kwargs["via_openai"]
                 self.api = "openai"
+        elif self.api == "bedrock":
+            if boto3 is None:
+                raise ImportError("boto3 is not installed. pip install boto3")
+            self.api_key = "bedrock" 
+            self.region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            if not os.getenv("AWS_ACCESS_KEY_ID") or not os.getenv("AWS_SECRET_ACCESS_KEY"):
+                logger.warning("AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY not found in environment variables")
         elif self.api == "vllm":
             return
         else:
             raise ValueError(f"API {self.api} not supported.")
 
-        assert self.api_key is not None, "API key not found."
+        if self.api != "bedrock" and self.api != "vllm":
+            assert self.api_key is not None, "API key not found."
 
     class InternalRequestResult:
         """A class to hold the result of a request internally (below run_queries)."""
@@ -724,6 +746,8 @@ class APIClient:
                 return self._openai_query_with_tools(idx, query)
             else:
                 return self._openrouter_query(idx, query)
+        elif self.api == "bedrock":
+            return self._bedrock_query(idx, query)
 
     def _anthropic_query(self, idx, query):
         """Queries the Anthropic API.
@@ -792,6 +816,239 @@ class APIClient:
             input_tokens=json_response["usage"]["prompt_tokens"],
             output_tokens=json_response["usage"]["completion_tokens"],
         )
+
+    def _bedrock_query(self, idx, query):
+        """Queries the AWS Bedrock API.
+
+        Supports Claude, Llama, and Titan models on AWS Bedrock.
+        
+        Example usage:
+            client = APIClient(
+                model="anthropic.claude-3-sonnet-20240229-v1:0",
+                api="bedrock",
+                max_tokens=1000,
+                temperature=0.7
+            )
+            
+        Supported models:
+            - Claude: anthropic.claude-3-sonnet-20240229-v1:0, anthropic.claude-3-haiku-20240307-v1:0
+            - Llama: meta.llama2-13b-chat-v1, meta.llama2-70b-chat-v1
+            - Titan: amazon.titan-text-express-v1, amazon.titan-text-lite-v1
+
+        Args:
+            idx (int): The index of the query in the batch of queries given to run_queries.
+            query (MessageList): The query to run.
+
+        Returns:
+            InternalRequestResult or None
+        """
+        try:
+            bedrock_client = boto3.client(
+                'bedrock-runtime',
+                region_name=self.region,
+                aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+                aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
+                config=Config(read_timeout=3600) #in seconds. TODO: make dynamic
+            )
+        except NoCredentialsError:
+            raise Exception("AWS credentials not found. Please configure AWS credentials.")
+        except Exception as e:
+            raise Exception(f"Failed to initialize Bedrock client: {e}")
+
+        # Convert messages to Bedrock format
+        messages = self._drop_cot(query)
+        
+        # Extract system message if present
+        system_message = None
+        if messages and messages[0].get("role") == "system":
+            system_message = messages[0]["content"]
+            messages = messages[1:]
+
+        # Determine the model provider and format the request
+        if ("claude" in self.model.lower()) or ("nova" in self.model.lower()):
+            return self._bedrock_claude_query(bedrock_client, idx, messages, system_message)
+        elif "llama" in self.model.lower():
+            return self._bedrock_llama_query(bedrock_client, idx, messages, system_message)
+        elif "titan" in self.model.lower():
+            return self._bedrock_titan_query(bedrock_client, idx, messages, system_message)
+        else:
+            raise ValueError(f"Unsupported Bedrock model: {self.model}")
+
+    def _bedrock_claude_query(self, client, idx, messages, system_message):
+        """Queries Claude models via AWS Bedrock. Prefer Converse API; fallback to invoke_model."""
+        converse_messages = []
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            if role in ["user", "assistant"]:
+                converse_messages.append({"role": role, "content": [{"text": content}]})
+
+        inference_config = {}
+        if self.kwargs.get("max_tokens") is not None:
+            inference_config["maxTokens"] = self.kwargs.get("max_tokens")
+        else:
+            inference_config["maxTokens"] = 1000
+        if self.kwargs.get("temperature") is not None:
+            inference_config["temperature"] = self.kwargs.get("temperature")
+        if self.kwargs.get("top_p") is not None:
+            inference_config["topP"] = self.kwargs.get("top_p")
+        if self.kwargs.get("top_k") is not None:
+            inference_config["topK"] = self.kwargs.get("top_k")
+        if self.kwargs.get("stop") is not None:
+            inference_config["stopSequences"] = self.kwargs.get("stop")
+
+        # Reasoning support (Claude 3.7 Sonnet and Nova reasoning-capable variants)
+        additional_model_request_fields = None
+        reasoning_cfg_raw = self.kwargs.get("reasoning_config") or self.kwargs.get("thinking")
+        if isinstance(reasoning_cfg_raw, dict):
+            # Normalize keys
+            r_type = reasoning_cfg_raw.get("type") or reasoning_cfg_raw.get("mode") or reasoning_cfg_raw.get("state")
+            budget_tokens = (
+                reasoning_cfg_raw.get("budgetTokens")
+                or reasoning_cfg_raw.get("budget_tokens")
+                or reasoning_cfg_raw.get("budget")
+            )
+            normalized = {}
+            if r_type is not None:
+                normalized["type"] = r_type
+            if budget_tokens is not None:
+                normalized["budget_tokens"] = budget_tokens
+            if len(normalized) > 0:
+                additional_model_request_fields = {"reasoning_config": normalized}
+                # Per AWS docs: temperature must be 1 when reasoning is enabled. Enforce if unset.
+                if "temperature" not in inference_config:
+                    inference_config["temperature"] = 1
+
+        converse_args = {
+            "messages": converse_messages,
+            "inferenceConfig": inference_config,
+
+        }
+        if system_message:
+            converse_args["system"] = [{"text": system_message}]
+        if additional_model_request_fields is not None:
+            converse_args["additionalModelRequestFields"] = additional_model_request_fields
+        
+        converse_args["modelId"] = self.model
+
+        try:
+            response = client.converse(**converse_args)
+
+            # Handle responses if response in enabled
+            if normalized.get("type","") == "enabled":
+                content = response["output"]["message"]["content"][1]["text"]
+            else:
+                content = response["output"]["message"]["content"][0]["text"]
+                
+            usage = response.get("usage", {})
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+
+            conversation = [m.copy() for m in messages] + [{"role": "assistant", "content": content}]
+            return self.InternalRequestResult(conversation, input_tokens, output_tokens)
+        except ClientError as e:
+            logger.error(f"Bedrock Claude API error: {e}")
+            raise Exception(f"Bedrock API error: {e}")
+
+    def _bedrock_llama_query(self, client, idx, messages, system_message):
+        """Queries Llama models via AWS Bedrock using Converse API."""
+        converse_messages = []
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            if role in ["user", "assistant"]:
+                converse_messages.append({"role": role, "content": [{"text": content}]})
+
+        inference_config = {}
+        if self.kwargs.get("max_tokens") is not None:
+            inference_config["maxTokens"] = self.kwargs.get("max_tokens")
+        else:
+            inference_config["maxTokens"] = 1000
+        if self.kwargs.get("temperature") is not None:
+            inference_config["temperature"] = self.kwargs.get("temperature")
+        if self.kwargs.get("top_p") is not None:
+            inference_config["topP"] = self.kwargs.get("top_p")
+        if self.kwargs.get("top_k") is not None:
+            inference_config["topK"] = self.kwargs.get("top_k")
+        if self.kwargs.get("stop") is not None:
+            inference_config["stopSequences"] = self.kwargs.get("stop")
+
+        converse_args = {
+            "messages": converse_messages,
+            "inferenceConfig": inference_config,
+            # "additionalModelResponseFields": ['usage'],
+        }
+
+        converse_args["modelId"] = self.model
+
+        try:
+            response = client.converse(**converse_args)
+
+            content = response["output"]["message"]["content"][0]["text"]
+            usage = response.get("usage", {})
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+
+            conversation = [m.copy() for m in messages] + [{"role": "assistant", "content": content}]
+            return self.InternalRequestResult(conversation, input_tokens, output_tokens)
+        except ClientError as e:
+            logger.error(f"Bedrock Llama API error: {e}")
+            raise Exception(f"Bedrock API error: {e}")
+
+    def _bedrock_titan_query(self, client, idx, messages, system_message):
+        """Queries Titan models via AWS Bedrock using Converse API."""
+        # Convert messages to Converse format
+        converse_messages = []
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if not isinstance(content, str):
+                content = str(content)
+            if role in ["user", "assistant"]:
+                converse_messages.append({"role": role, "content": [{"text": content}]})
+
+        inference_config = {}
+        if self.kwargs.get("max_tokens") is not None:
+            inference_config["maxTokens"] = self.kwargs.get("max_tokens")
+        else:
+            inference_config["maxTokens"] = 1000
+        if self.kwargs.get("temperature") is not None:
+            inference_config["temperature"] = self.kwargs.get("temperature")
+        if self.kwargs.get("top_p") is not None:
+            inference_config["topP"] = self.kwargs.get("top_p")
+        if self.kwargs.get("top_k") is not None:
+            inference_config["topK"] = self.kwargs.get("top_k")
+        if self.kwargs.get("stop") is not None:
+            inference_config["stopSequences"] = self.kwargs.get("stop")
+
+        converse_args = {
+            "messages": converse_messages,
+            "inferenceConfig": inference_config,
+            # "additionalModelResponseFields": ['usage'],
+        }
+        if system_message:
+            converse_args["system"] = [{"text": system_message}]
+
+        converse_args["modelId"] = self.model
+
+        try:
+            response = client.converse(**converse_args)
+
+            content = response["output"]["message"]["content"][0]["text"]
+            usage = response.get("usage", {})
+            input_tokens = usage.get("inputTokens", 0)
+            output_tokens = usage.get("outputTokens", 0)
+
+            conversation = [m.copy() for m in messages] + [{"role": "assistant", "content": content}]
+            return self.InternalRequestResult(conversation, input_tokens, output_tokens)
+        except ClientError as e:
+            logger.error(f"Bedrock Titan API error: {e}")
+            raise Exception(f"Bedrock API error: {e}")
 
     def _openai_query_with_tools(self, idx, query, is_together=False, ignore_tool_calls=False):
         """Queries the OpenAI API with tools.

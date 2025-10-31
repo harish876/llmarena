@@ -1,0 +1,9 @@
+model: us.amazon.nova-pro-v1:0
+api: bedrock
+max_tokens: 4000
+temperature: 0.0
+concurrent_requests: 15
+read_cost: 0.80
+write_cost: 3.20
+human_readable_id: Amazon Nova Pro (Bedrock)
+date: "2024-12-19"

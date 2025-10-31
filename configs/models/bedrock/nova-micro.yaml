@@ -1,0 +1,9 @@
+model: us.amazon.nova-micro-v1:0
+api: bedrock
+max_tokens: 4000
+temperature: 0.0
+concurrent_requests: 20
+read_cost: 0.03
+write_cost: 0.14
+human_readable_id: Amazon Nova Micro (Bedrock)
+date: "2024-12-19"

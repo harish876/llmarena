@@ -1,0 +1,11 @@
+model: us.anthropic.claude-opus-4-20250514-v1:0
+api: bedrock
+max_tokens: 32000
+concurrent_requests: 4
+temperature: 1
+top_p: null
+read_cost: 15
+write_cost: 75
+batch_processing: true
+human_readable_id: Claude-Opus-4.0
+date: "2025-05-22"

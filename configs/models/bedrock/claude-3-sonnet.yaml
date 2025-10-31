@@ -1,0 +1,9 @@
+model: anthropic.claude-3-sonnet-20240229-v1:0
+api: bedrock
+max_tokens: 4000
+temperature: 0.0
+concurrent_requests: 20
+read_cost: 3
+write_cost: 15
+human_readable_id: Claude-3-Sonnet (Bedrock)
+date: "2024-02-29"
