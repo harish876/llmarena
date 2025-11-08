@@ -5,5 +5,5 @@ read_cost: 0.15
 write_cost: 0.60
 concurrent_requests: 16
 reasoning_effort: high
-human_readable_id: GPT OSS 120B (high)
+human_readable_id: GPT OSS 120B
 date: "2025-08-05"

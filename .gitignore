@@ -38,3 +38,5 @@ scripts/postprocess*
 scripts/analyses
 scripts/curation/*.sh
 scripts/extraction/timeline.py
+logs
+rank_variance.jsonl

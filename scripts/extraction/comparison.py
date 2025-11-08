@@ -90,9 +90,10 @@ def get_human_scores(old_comps, new_comps):
     return old_scores, new_scores
 
 def get_scores(comps, output_folder, competition_config_folder, all_existing_configs, 
-                avg=True):
+                avg=True, check_complete=False, runs_per_problem=4):
     scores = dict()
     costs = dict()
+    complete_flags = dict()
 
     for comp in comps:
         with open(f"{competition_config_folder}/{comp}.yaml", "r") as f:
@@ -102,11 +103,15 @@ def get_scores(comps, output_folder, competition_config_folder, all_existing_con
         for config_path in all_existing_configs:
             results = []
             costs_here = []
+            is_complete = True
             for i in range(1, n_problems + 1):
                 if not os.path.exists(f"{output_folder}/{comp}/{config_path}/{i}.json"):
                     logger.warning(f"File {output_folder}/{comp}/{config_path}/{i}.json does not exist")
+                    is_complete = False
                     break
                 results_prob = json.load(open(f"{output_folder}/{comp}/{config_path}/{i}.json", "r"))
+                if check_complete and results_prob.get("N", 0) < runs_per_problem:
+                    is_complete = False
                 correct = results_prob["correct"] if "usamo" not in comp else [
                     judgment["points"] / 7 for judgment in results_prob["judgment"][0]
                 ]
@@ -121,6 +126,9 @@ def get_scores(comps, output_folder, competition_config_folder, all_existing_con
                     costs_here.append(np.mean(costs_sample))
             scores[config_path] = scores.get(config_path, dict())
             costs[config_path] = costs.get(config_path, dict())
+            if check_complete:
+                complete_flags[config_path] = complete_flags.get(config_path, dict())
+                complete_flags[config_path][comp] = is_complete
             if len(results) == 0:
                 scores[config_path][comp] = "N/A"
                 costs[config_path][comp] = "N/A"
@@ -130,6 +138,8 @@ def get_scores(comps, output_folder, competition_config_folder, all_existing_con
             else:
                 scores[config_path][comp] = results
                 costs[config_path][comp] = costs_here
+    if check_complete:
+        return scores, costs, complete_flags
     return scores, costs
 
 if __name__ == "__main__":

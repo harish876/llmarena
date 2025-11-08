@@ -15,6 +15,7 @@ parser.add_argument(
     help="List of model configs to run, might have scaffolding, example: xai/grok-4",
 )
 parser.add_argument("--n", type=int, default=4, help="Number of runs per problem")
+parser.add_argument("--max-problems", type=int, default=None, help="Maximum number of problems to run (useful for trial runs)")
 
 # skip-existing is default
 parser.add_argument(
@@ -28,7 +29,7 @@ parser.add_argument("--output-dir", type=str, default="outputs")
 args = parser.parse_args()
 
 logger.info(f"Initializing runner for competition {args.comp}")
-runner = Runner(args.comp, args.n, args.comp_configs_dir, args.model_configs_dir, args.output_dir, args.redo_all)
+runner = Runner(args.comp, args.n, args.comp_configs_dir, args.model_configs_dir, args.output_dir, args.redo_all, max_problems=args.max_problems)
 
 # Run each model
 for model in args.models:

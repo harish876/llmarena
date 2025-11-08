@@ -81,13 +81,18 @@ uv run python scripts/run.py --comp path/to/competition --models path/to/model1
 - `path/to/competition`: Relative path from the `configs/competition` folder to the competition config file (excluding the `.yaml` extension).
 - `path/to/model1`: Relative path (or multiple) from the `configs/models` folder to the model config file (excluding the `.yaml` extension). See [Adding a Model/Agent](#adding-a-model) below for model config file structure.
 
-**Example:**
+**Examples:**
 ```bash
+# Run a full evaluation
 uv run python scripts/run.py --comp aime/aime_2025 --models openai/gpt-4o 
+
+# Run a trial with only 5 problems
+uv run python scripts/run.py --comp aime/aime_2025 --models openai/gpt-4o --max-problems 5
 ```
 
 **Additional Flags:**
 - `--n`: Number of runs per problem (default: 4).
+- `--max-problems`: Maximum number of problems to run (useful for trial runs). If not specified, all problems in the competition will be run.
 - `--redo-all`: Ignore existing runs for this model and rerun everything (default: false, continues from existing runs found in `outputs/`).
 
 ### What Does This Do?

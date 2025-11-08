@@ -10,5 +10,5 @@ thinking:
 read_cost: 15
 write_cost: 75
 batch_processing: true
-human_readable_id: Claude-Opus-4.0 (Think)
+human_readable_id: Claude 4 Opus (Thinking)
 date: "2025-05-22"

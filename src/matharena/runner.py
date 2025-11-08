@@ -2,12 +2,14 @@
 
 import base64
 import csv
+import io
 import os
 from datetime import datetime
 
 import yaml
-from datasets import load_dataset
+from datasets import DownloadConfig, load_dataset
 from loguru import logger
+from PIL import Image
 
 from matharena.code_execution import execute_code
 from matharena.grader import extract_and_grade
@@ -19,25 +21,31 @@ from matharena.utils import normalize_conversation, save_run_for_recovery
 
 
 class Runner:
-    def __init__(self, comp_name, runs_per_problem, comp_configs_dir, solver_configs_dir, output_dir, redo_all):
+    def __init__(self, comp_name, runs_per_problem, comp_configs_dir, solver_configs_dir, output_dir, redo_all, max_problems=None):
         self.comp_name = comp_name
         self.runs_per_problem = runs_per_problem
         self.comp_configs_dir = comp_configs_dir
         self.solver_configs_dir = solver_configs_dir
         self.base_output_dir = output_dir
         self.redo_all = redo_all
+        self.max_problems = max_problems
 
         # Load competition config
         competition_config_path = f"{self.comp_configs_dir}/{self.comp_name}.yaml"
         with open(competition_config_path, "r") as f:
             self.competition_config = yaml.safe_load(f)
         self.is_fa_comp = self.competition_config.get("final_answer", True)
+        self.is_mmmu = self.competition_config.get("is_mmmu",False)
         self.options = self.competition_config.get("options", None)
 
         # Load problems
         self.problems = self._load_problems()
+        if self.max_problems is not None and len(self.problems) > self.max_problems:
+            self.problems = self.problems[:self.max_problems]
+            logger.info(f"Limited to {self.max_problems} problems for trial run")
         logger.info(f"Loaded {len(self.problems)} problems for competition {self.comp_name}")
 
+    #TODO: we should look into making this more modular
     def _load_problems(self):
         """Loads problems for the competition assigned to this runner.
 
@@ -46,13 +54,115 @@ class Runner:
                   "problem_idx", "problem", "answer", and optionally "source" and "problem_types".
         """
         dataset_path = self.competition_config["dataset_path"]
+        dataset_split = self.competition_config.get("dataset_split", "train")
+        dataset_config = self.competition_config.get("dataset_config", None)
+        dataset_filter_key = self.competition_config.get("dataset_filter_key", None)
+        dataset_filter_value = self.competition_config.get("dataset_filter_value", None)
 
         if not os.path.exists(dataset_path):
-            problems = load_dataset(dataset_path, split="train").to_list()
-            for problem in problems:
-                if "image" in problem and problem["image"] is not None:
-                    image_b64 = base64.b64encode(problem["image"]["bytes"]).decode("utf-8")
-                    problem["image"] = image_b64
+            if dataset_config is not None:
+                dataset = load_dataset(dataset_path, dataset_config, split=dataset_split)
+            else:
+                dataset = load_dataset(dataset_path, split=dataset_split)
+            
+            if dataset_filter_key is not None and dataset_filter_value is not None:
+                dataset = dataset.filter(lambda x: x.get(dataset_filter_key) == dataset_filter_value)
+            
+            problems_raw = dataset.to_list()
+            
+            if self.is_mmmu:
+                problems = []
+                
+                for idx, example in enumerate(problems_raw):
+                    problem_id = example.get("id", "")
+                    problem_idx = idx + 1 
+                    try:
+                        parts = problem_id.split("_")
+                        if parts:
+                            last_part = parts[-1]
+                            if last_part.isdigit():
+                                problem_idx = int(last_part)
+                    except Exception:
+                        pass
+                    
+                    question = example.get("question", "")
+                    options = example.get("options", None)
+                    if isinstance(options, str):
+                        if options.strip() == '[]':
+                            options_list = []
+                        else:
+                            options_list = [opt.strip() for opt in options.split(",") if opt.strip()]
+                            if options_list:
+                                if options_list[0].startswith('['):
+                                    options_list[0] = options_list[0][1:].strip()
+                                if options_list[-1].endswith(']'):
+                                    options_list[-1] = options_list[-1][:-1].strip()
+                    elif isinstance(options, list):
+                        options_list = options
+                    else:
+                        options_list = []
+                    
+                    answer = example.get("answer", "").strip()
+                    
+                    problem_text = f"{question}\n\n"
+                    for i, option in enumerate(options_list):
+                        letter = chr(65 + i) 
+                        problem_text += f"({letter}) {option}\n"
+                    
+                    images_array = []
+                    for i in range(1, 8):
+                        img_key = f"image_{i}"
+                        if img_key in example and example[img_key] is not None:
+                            img_data = example[img_key]
+                            try:
+                                if hasattr(img_data, "save"):
+                                    img_buffer = io.BytesIO()
+                                    if img_data.mode in ('RGBA', 'LA', 'P'):
+                                        rgb_image = Image.new('RGB', img_data.size, (255, 255, 255))
+                                        if img_data.mode == 'P':
+                                            img_data = img_data.convert('RGBA')
+                                        rgb_image.paste(img_data, mask=img_data.split()[-1] if img_data.mode in ('RGBA', 'LA') else None)
+                                        img_data = rgb_image
+                                    img_data.save(img_buffer, format='PNG')
+                                    img_bytes = img_buffer.getvalue()
+                                    image_b64 = base64.b64encode(img_bytes).decode("utf-8")
+                                elif isinstance(img_data, dict):
+                                    if "bytes" in img_data:
+                                        image_b64 = base64.b64encode(img_data["bytes"]).decode("utf-8")
+                                    else:
+                                        continue
+                                elif isinstance(img_data, bytes):
+                                    image_b64 = base64.b64encode(img_data).decode("utf-8")
+                                else:
+                                    logger.warning(f"Unknown image format for {img_key} in problem {problem_idx}")
+                                    continue
+                                images_array.append(image_b64)
+                            except Exception as e:
+                                logger.warning(f"Failed to process {img_key} for problem {problem_idx}: {e}")
+                                continue
+                    
+                    problem_dict = {
+                        "problem_idx": problem_idx,
+                        "problem": problem_text,
+                        "answer": answer,
+                        "images": images_array if images_array else None,  # Array of base64 images
+                    }
+                    if "topic_difficulty" in example:
+                        problem_dict["topic_difficulty"] = example["topic_difficulty"]
+                    if "question_type" in example:
+                        problem_dict["question_type"] = example["question_type"]
+                    if "subfield" in example:
+                        problem_dict["subfield"] = example["subfield"]
+                    
+                    problems.append(problem_dict)
+            else:
+                # Standard HuggingFace dataset format
+                for problem in problems_raw:
+                    if "image" in problem and problem["image"] is not None:
+                        image_b64 = base64.b64encode(problem["image"]["bytes"]).decode("utf-8")
+                        problem["image"] = image_b64
+                problems = problems_raw
+            
             return sorted(problems, key=lambda x: x["problem_idx"])
 
         answers_path = os.path.join(dataset_path, "answers.csv")
@@ -282,9 +392,12 @@ class Runner:
                 # logger.info(f"Problem {problem["problem_idx"]}: loaded {runs.N} previous runs")
             all_runs[problem["problem_idx"]] = runs
 
-            # Add to batch if we need more runs
             for _ in range(self.runs_per_problem - runs.N):
-                batch.append((problem["problem"] if "problem" in problem else None, problem["image"] if "image" in problem else None))  # (text, image)
+                if self.is_mmmu:
+                    image_data = problem.get("images", None)
+                else:
+                    image_data = problem.get("image", None)
+                batch.append((problem.get("problem", None), image_data))  # (text, image or images array)
                 batch_idx_to_problem_idx[len(batch) - 1] = problem["problem_idx"]
 
         self._update_status(solver_name, all_runs)

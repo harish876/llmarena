@@ -6,6 +6,9 @@ from loguru import logger
 import argparse
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     from tqdm import tqdm
@@ -105,37 +108,49 @@ def upload_outputs_to_s3(
 
     # Collect all files to upload
     files_to_upload = []
-    pattern_parts = []
-    
-    if competition:
-        pattern_parts.append(competition)
-    if provider:
-        pattern_parts.append(provider)
-    if model:
-        pattern_parts.append(model)
 
-    # Build search pattern
+    # Build search pattern - handle nested paths like "aime/aime_2025"
     search_path = outputs_path
     if competition:
-        search_path = search_path / competition
+        # Split competition path by '/' and join with Path
+        competition_parts = competition.split('/')
+        search_path = outputs_path
+        for part in competition_parts:
+            search_path = search_path / part
         if not search_path.exists():
-            logger.warning(f"Competition directory {search_path} does not exist.")
-            return
+            logger.error(f"Competition directory {search_path} does not exist.")
+            raise ValueError(f"Directory {search_path} not found")
+        logger.info(f"Searching for files under {search_path}")
 
-    # Find all JSON files matching the pattern
+    # Find all JSON files recursively
     for json_file in search_path.rglob("*.json"):
         rel_path = json_file.relative_to(outputs_path)
-        
-        # Apply filters
         path_parts = rel_path.parts
-        if competition and path_parts[0] != competition:
-            continue
-        if provider and len(path_parts) > 2 and path_parts[1] != provider:
-            continue
-        if model and len(path_parts) > 3 and path_parts[2] != model:
-            continue
         
-        # Build S3 key
+        # Apply provider filter if specified
+        # Structure: competition/[subdirs]/provider/model/file.json
+        # We need to find provider in the path parts
+        if provider:
+            provider_found = False
+            for part in path_parts:
+                if part == provider:
+                    provider_found = True
+                    break
+            if not provider_found:
+                continue
+        
+        # Apply model filter if specified
+        # Model typically comes after provider
+        if model:
+            model_found = False
+            for i, part in enumerate(path_parts):
+                if part == model:
+                    model_found = True
+                    break
+            if not model_found:
+                continue
+        
+        # Build S3 key preserving the full relative path
         s3_key = f"{s3_prefix}/{rel_path.as_posix()}"
         files_to_upload.append((json_file, s3_key))
 
@@ -186,6 +201,9 @@ def list_outputs_on_s3(
             "s3",
             region_name=region,
             endpoint_url=endpoint_url,
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
         )
     except NoCredentialsError:
         logger.error("AWS credentials not found. Please configure AWS credentials.")

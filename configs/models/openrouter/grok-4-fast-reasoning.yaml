@@ -1,4 +1,4 @@
-model: grok-4-fast-reasoning
+model: x-ai/grok-4-fast
 api: openrouter
 max_tokens: 130000
 read_cost: 0.2

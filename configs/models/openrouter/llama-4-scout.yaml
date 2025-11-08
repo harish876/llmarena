@@ -1,0 +1,10 @@
+model: meta-llama/llama-4-scout
+api: openrouter
+max_tokens: 8192
+temperature: 0.6
+top_p: 0.9
+read_cost: 0.08
+write_cost: 0.30
+human_readable_id: Llama-4-Scout
+date: "2025-04-05"
+concurrent_requests: 8

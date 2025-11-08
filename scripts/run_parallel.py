@@ -17,6 +17,7 @@ parser.add_argument(
     help="List of model configs to run, might have scaffolding, example: xai/grok-4",
 )
 parser.add_argument("--n", type=int, default=4, help="Number of runs per problem")
+parser.add_argument("--max-problems", type=int, default=None, help="Maximum number of problems to run (useful for trial runs)")
 
 # skip-existing is default
 parser.add_argument(
@@ -42,7 +43,7 @@ def run_model(runner: Runner, model):
         return model, False, str(e)
 
 logger.info(f"Initializing runner for competition {args.comp}")
-runner = Runner(args.comp, args.n, args.comp_configs_dir, args.model_configs_dir, args.output_dir, args.redo_all)
+runner = Runner(args.comp, args.n, args.comp_configs_dir, args.model_configs_dir, args.output_dir, args.redo_all, max_problems=args.max_problems)
 
 logger.info(f"Running {len(args.models)} models with max {args.max_workers} workers")
 with ThreadPoolExecutor(max_workers=args.max_workers) as executor:

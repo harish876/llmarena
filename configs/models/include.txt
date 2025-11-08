@@ -1,0 +1,15 @@
+openrouter/grok-4
+openrouter/gemini-2.5-pro
+openrouter/gpt-5
+openrouter/grok-4-fast-reasoning
+openrouter/gpt-5-mini
+openrouter/deepseek_45-sonnet
+openrouter/claude-37-sonnet
+openrouter/claude-4-opus
+openrouter/o4-mini
+openrouter/deepseek_v31_terminus
+openrouter/minimax_m2
+openrouter/deepseek_r1
+openrouter/llama-4-maverick
+openrouter/oss-120b
+openrouter/llama-4-scout

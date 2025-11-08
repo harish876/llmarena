@@ -1,0 +1,13 @@
+competition: mmmu_finance_open
+dataset_path: MMMU/MMMU
+dataset_config: Finance
+dataset_split: validation
+dataset_filter_key: question_type
+dataset_filter_value: open
+date: "2024-01-01"
+instruction: "You are given an open-ended question from the MMMU (Multi-discipline Multimodal Understanding) benchmark in the field of Finance.\n
+    \ Reason step by step, and put your final answer within \\boxed{{}}.\n"
+n_problems: 30
+strict_parsing: false
+final_answer: true
+is_mmmu: true

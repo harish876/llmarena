@@ -1,0 +1,14 @@
+competition: gpqa_diamond
+dataset_path: data/gpqa_diamond
+date: "2024-01-01"
+instruction: "You are given a multiple choice question from the GPQA (Graduate-Level Google-Proof Q&A) benchmark\n.
+    \ Reason step by step, and put your final answer within \\boxed{{}}, referring to the given multiple choice options (A, B, C, or D),
+    \ of which exactly one is correct.\nAn example of a valid answer is \\boxed{{A}}. Do not put your
+    \ answer text in boxed, for example \\boxed{{42}} is not a valid answer; instead find that
+    \ value in the options list and report the corresponding letter.\n"
+n_problems: 198
+options: ["A", "B", "C", "D", "None"]
+strict_parsing: false
+final_answer: true
+
+

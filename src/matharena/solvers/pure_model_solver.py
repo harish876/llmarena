@@ -31,18 +31,31 @@ class PureModelSolver(BaseSolver):
         """
 
         queries = []
-        for text, image_b64 in stmt_batch:
+        for text, image_data in stmt_batch:
             if text is None:
                 text = "See image."
             prompt = self.default_prompt_template.format(problem=text)
-            if image_b64 is not None:
+            
+            # Handle both single image (base64 string) and image array (list of base64 strings)
+            if image_data is not None:
                 # NOTE: OpenAI format, needs to be mangled inside for Gemini, Grok
-                content = [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "image_url": f"data:image/png;base64,{image_b64}", "detail": "high"},
-                ]
+                content = [{"type": "input_text", "text": prompt}]
+                if isinstance(image_data, list):
+                    for img_b64 in image_data:
+                        content.append({
+                            "type": "input_image",
+                            "image_url": f"data:image/png;base64,{img_b64}",
+                            "detail": "high"
+                        })
+                else:
+                    content.append({
+                        "type": "input_image",
+                        "image_url": f"data:image/png;base64,{image_data}",
+                        "detail": "high"
+                    })
             else:
                 content = prompt
+            
             queries.append([{"role": "user", "content": content}])
         for idx, conversation, detailed_cost in self.client.run_queries(queries):
             # History is None for pure model solver

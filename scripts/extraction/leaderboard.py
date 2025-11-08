@@ -8,6 +8,8 @@ from human_score_data import human_scores
 import yaml
 from datetime import datetime
 import os
+import json
+import sys
 np.random.seed(42)
 
 def get_latex_model_name(model):
@@ -123,12 +125,26 @@ if __name__ == "__main__":
     parser.add_argument("--only-intersection", action="store_true", help="Only keep the intersection of configs")
     parser.add_argument("--no-cost", action="store_true", help="Do not compute cost")
     parser.add_argument("--human-quantiles", type=float, nargs="+", default=[])
-    parser.add_argument("--output-format", type=str, choices=["table", "latex"], default="table",
+    parser.add_argument("--output-format", type=str, choices=["table", "latex", "json"], default="table",
                         help="Format for final printed results")
     parser.add_argument("--exclude-models", type=str, nargs="+", default=[],
                         help="Exclude configs whose YAML filename contains any of these substrings")
+    parser.add_argument("--export-json", type=str, default=None,
+                        help="Path to export detailed leaderboard data as JSON (includes model configs)")
+    parser.add_argument("--hide-incomplete", action="store_true",
+                        help="Hide models that have incomplete runs (less than 4 runs per problem)")
+    parser.add_argument("--runs-per-problem", type=int, default=4,
+                        help="Expected number of runs per problem (default: 4)")
+    parser.add_argument("--models-json", type=str, default=None,
+                        help="Path to JSON file containing list of model config paths to include (e.g., ['openrouter/gpt-5', 'bedrock/claude-3-5-sonnet'])")
 
     args = parser.parse_args()
+
+    # Set default export-json path if not specified
+    if args.export_json is None:
+        # Use first competition name as default location
+        if len(args.comps) == 1:
+            args.export_json = f"{args.output_folder}/{args.comps[0]}/leaderboard_summary.json"
 
     if args.compute_variance:
         args.only_intersection = True
@@ -136,6 +152,43 @@ if __name__ == "__main__":
     all_existing_configs = get_intersection_configs(args.comps, args.output_folder,
                                                     args.configs_folder, args.competition_config_folder, 
                                                     intersection=args.only_intersection)
+    
+    # Filter to only include models from JSON file if provided
+    if args.models_json:
+        with open(args.models_json, "r") as f:
+            model_list = json.load(f)
+        
+        if not isinstance(model_list, list):
+            raise ValueError(f"JSON file must contain a list of model config paths, got {type(model_list)}")
+        
+        # Normalize model paths (remove .yaml extension if present, handle both formats)
+        normalized_model_list = []
+        for model in model_list:
+            if model.endswith(".yaml"):
+                model = model[:-5]  # Remove .yaml extension
+            normalized_model_list.append(model)
+        
+        # Filter all_existing_configs to only include models in the list
+        filtered_configs = {}
+        for config_path in all_existing_configs:
+            # Check if config_path is in the list (exact match or normalized)
+            if config_path in normalized_model_list:
+                filtered_configs[config_path] = all_existing_configs[config_path]
+            else:
+                # Also check with .yaml extension
+                if f"{config_path}.yaml" in model_list:
+                    filtered_configs[config_path] = all_existing_configs[config_path]
+        
+        # Warn about models in JSON that don't exist
+        missing_models = set(normalized_model_list) - set(filtered_configs.keys())
+        if missing_models:
+            print(f"Warning: Models in JSON file not found in competitions: {missing_models}", file=sys.stderr)
+        
+        all_existing_configs = filtered_configs
+        
+        if not all_existing_configs:
+            raise ValueError(f"No models from JSON file found in competitions. Check that model paths are correct and models have been run on the specified competitions.")
+    
     # Optionally exclude configs by substring match on YAML filename (basename without path)
     if args.exclude_models:
         def should_exclude(config_path: str) -> bool:
@@ -180,14 +233,36 @@ if __name__ == "__main__":
             deviations[config_path] = 0
             rank_quantiles[config_path] = [0, 0]
 
-    avg_scores, avg_cost = get_scores(args.comps, args.output_folder,
+    if args.hide_incomplete:
+        avg_scores, avg_cost, complete_flags = get_scores(args.comps, args.output_folder,
+                                args.competition_config_folder, all_existing_configs, avg=True,
+                                check_complete=True, runs_per_problem=args.runs_per_problem)
+        # Filter out incomplete models from all dicts
+        completed_configs = {
+            config_path: name for config_path, name in all_existing_configs.items()
+            if all(complete_flags.get(config_path, {}).get(comp, False) for comp in args.comps)
+        }
+        # Filter avg_scores and avg_cost to only include complete models
+        avg_scores = {k: v for k, v in avg_scores.items() if k in completed_configs}
+        avg_cost = {k: v for k, v in avg_cost.items() if k in completed_configs}
+        all_existing_configs = completed_configs
+    else:
+        avg_scores, avg_cost = get_scores(args.comps, args.output_folder,
                             args.competition_config_folder, all_existing_configs, avg=True)
 
     final_df = []
+    detailed_data = []  # For JSON export with config details
 
     for config_path in avg_scores:
-        model_date = yaml.safe_load(open(f"{args.configs_folder}/{config_path}.yaml", "r")).get("date", "2000-01-01")
-        model_date = datetime.strptime(model_date, "%Y-%m-%d")
+        # Load model config for detailed export
+        with open(f"{args.configs_folder}/{config_path}.yaml", "r") as f:
+            model_config_data = yaml.safe_load(f)
+        model_date_str = model_config_data.get("date", "2000-01-01")
+        model_date = datetime.strptime(model_date_str, "%Y-%m-%d")
+        
+        # Store original scores before any mutations
+        original_scores = avg_scores[config_path].copy()
+        
         extra = dict()
         if args.keep_comps:
             for comp in args.comps:
@@ -231,6 +306,20 @@ if __name__ == "__main__":
             final_df[-1].pop("Cost (avg)")
         if not args.compute_variance:
             final_df[-1].pop("Rank")
+        
+        # Collect detailed data for JSON export using original_scores
+        detailed_entry = {
+            "model_display_name": model_display_name,
+            "config_path": config_path,
+            "avg_score": float(avg_score),
+            "avg_cost": float(avg_cost_model) if not isinstance(avg_cost_model, str) else None,
+            "rank": f"{rank_quantiles[config_path][0]}-{rank_quantiles[config_path][1]}" if args.compute_variance else None,
+            "date": model_date_str,
+            "config": model_config_data,
+            "per_competition_scores": {comp: float(score * 100) if score not in ["N/A", "{N/A}"] else None 
+                                       for comp, score in original_scores.items()} if original_scores else {}
+        }
+        detailed_data.append(detailed_entry)
     
     human_quantiles = get_human_score_quantiles(args.comps, [1 - quant for quant in args.human_quantiles])
     for i, quantile in enumerate(args.human_quantiles):
@@ -250,12 +339,24 @@ if __name__ == "__main__":
     final_df.index = np.arange(1, len(final_df) + 1)
     final_df.to_json(args.save_file, orient="records", lines=True)
     del final_df["acc"]
+    
+    # Sort detailed_data by avg_score (matching final_df order)
+    detailed_data.sort(key=lambda x: x["avg_score"], reverse=True)
+    # Export detailed JSON if requested
+    if args.export_json:
+        os.makedirs(os.path.dirname(args.export_json), exist_ok=True)
+        with open(args.export_json, "w") as f:
+            json.dump(detailed_data, f, indent=2)
+    
     # print final results in requested format
     if args.output_format == "latex":
         df_latex = final_df.copy()
         # all column names -> {\textbf{name}}
         df_latex.columns = [f"{{\\textbf{{{col}}}}}" for col in df_latex.columns]
         print(df_latex.to_latex(index=False))
+    elif args.output_format == "json":
+        # Print JSON formatted output
+        print(json.dumps(detailed_data, indent=2))
     else:
         # pretty console table
         pd.set_option("display.max_colwidth", None)

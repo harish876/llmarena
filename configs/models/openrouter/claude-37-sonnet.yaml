@@ -1,0 +1,15 @@
+model: anthropic/claude-3.7-sonnet
+api: openrouter
+max_tokens: null
+temperature: 1 # https://docs.aws.amazon.com/bedrock/latest/userguide/kb-test-configure-reasoning.html#kb-test-reasoning-api-considerations
+top_p: null
+provider:
+  allow_fallbacks: False
+  order:
+  - amazon-bedrock
+read_cost: 3
+write_cost: 15
+human_readable_id: Claude 3.7 Sonnet (Thinking)
+date: "2025-01-21"
+reasoning:
+  effort: "high"

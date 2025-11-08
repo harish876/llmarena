@@ -346,11 +346,22 @@ class APIClient:
             if m.get("role", "") == "user":
                 check_for_extra_keys(m, ["role", "content"])
 
-            # Fix images into another format for gemini and grok and qwen and glm
+            # Fix images into OpenAI-compatible format for gemini, grok, qwen, glm, and openrouter
+            # OpenRouter uses the same format and supports base64 images via data URLs
+            # Check both self.api and base_url to catch OpenRouter even when routing via OpenAI-compatible path
+            is_openrouter = self.api == "openrouter" or (
+                self.base_url and "openrouter.ai" in self.base_url
+            )
             if (
                 m.get("role", "") == "user"
                 and isinstance(m.get("content", ""), list)
-                and ("gemini-" in self.model or "grok-4" in self.model or "qwen" in self.model or "glm" in self.model)
+                and (
+                    "gemini-" in self.model
+                    or "grok-4" in self.model
+                    or "qwen" in self.model
+                    or "glm" in self.model
+                    or is_openrouter
+                )
             ):
                 new_content = []
                 for block in m["content"]:
@@ -370,15 +381,40 @@ class APIClient:
                         new_content.append(block)
                 query_prepared[-1]["content"] = new_content
 
-            # Fix images for anthropic
-            if m.get("role", "") == "user" and isinstance(m.get("content", ""), list) and self.api == "anthropic":
+            # Fix images for anthropic and bedrock (Claude models use same format)
+            if (
+                m.get("role", "") == "user"
+                and isinstance(m.get("content", ""), list)
+                and (self.api == "anthropic" or self.api == "bedrock")
+            ):
                 new_content = []
                 for block in m["content"]:
                     if isinstance(block, dict) and block.get("type", "") == "input_image" and "image_url" in block:
                         b64_full = block["image_url"]
-                        tag = "data:image/png;base64,"
-                        assert b64_full.startswith(tag)
-                        source = {"type": "base64", "media_type": "image/png", "data": b64_full[len(tag) :]}
+                        # Extract media type and data from data URL (format: data:image/png;base64,{data})
+                        # Default to png if format is unclear
+                        media_type = "png"
+                        image_data = b64_full
+                        
+                        if b64_full.startswith("data:image/"):
+                            # Extract media type (e.g., "png", "jpeg", "webp")
+                            start_idx = len("data:image/")
+                            semicolon_idx = b64_full.find(";", start_idx)
+                            if semicolon_idx != -1:
+                                media_type = b64_full[start_idx:semicolon_idx]
+                            # Extract base64 data after "base64,"
+                            base64_start = b64_full.find("base64,")
+                            if base64_start != -1:
+                                image_data = b64_full[base64_start + len("base64,") :]
+                            else:
+                                logger.warning(f"Could not find base64 data in image_url, using raw data")
+                                # If no base64, prefix, assume entire string is base64 data
+                                image_data = b64_full
+                        elif not b64_full.startswith("data:"):
+                            # Assume it's raw base64 data without prefix
+                            image_data = b64_full
+                        
+                        source = {"type": "base64", "media_type": f"image/{media_type}", "data": image_data}
                         new_content.append({"type": "image", "source": source})
                     elif isinstance(block, dict) and block.get("type", "") == "input_text" and "text" in block:
                         new_content.append({"type": "text", "text": block["text"]})
@@ -881,10 +917,38 @@ class APIClient:
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
-            if not isinstance(content, str):
-                content = str(content)
+            
             if role in ["user", "assistant"]:
-                converse_messages.append({"role": role, "content": [{"text": content}]})
+                if isinstance(content, list):
+                    converse_content = []
+                    for block in content:
+                        if isinstance(block, dict):
+                            block_type = block.get("type")
+                            if block_type == "text":
+                                converse_content.append({"text": block.get("text", "")})
+                            elif block_type == "image":
+                                source = block.get("source", {})
+                                if source.get("type") == "base64":
+                                    media_type = source.get("media_type", "image/png")
+                                    format_type = media_type.split("/")[-1] if "/" in media_type else "png"
+                                    image_data = source.get("data", "")
+                                    converse_content.append({
+                                        "image": {
+                                            "format": format_type,
+                                            "source": {"bytes": image_data}
+                                        }
+                                    })
+                                else:
+                                    logger.warning(f"Unsupported image source type in Bedrock query: {source.get('type')}")
+                            else:
+                                logger.warning(f"Unknown content block type in Bedrock query: {block_type}")
+                        else:
+                            converse_content.append({"text": str(block)})
+                    converse_messages.append({"role": role, "content": converse_content})
+                else:
+                    if not isinstance(content, str):
+                        content = str(content)
+                    converse_messages.append({"role": role, "content": [{"text": content}]})
 
         inference_config = {}
         if self.kwargs.get("max_tokens") is not None:
@@ -902,6 +966,7 @@ class APIClient:
 
         # Reasoning support (Claude 3.7 Sonnet and Nova reasoning-capable variants)
         additional_model_request_fields = None
+        normalized = {}
         reasoning_cfg_raw = self.kwargs.get("reasoning_config") or self.kwargs.get("thinking")
         if isinstance(reasoning_cfg_raw, dict):
             # Normalize keys
@@ -911,7 +976,6 @@ class APIClient:
                 or reasoning_cfg_raw.get("budget_tokens")
                 or reasoning_cfg_raw.get("budget")
             )
-            normalized = {}
             if r_type is not None:
                 normalized["type"] = r_type
             if budget_tokens is not None:
@@ -959,10 +1023,45 @@ class APIClient:
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
-            if not isinstance(content, str):
-                content = str(content)
+            
             if role in ["user", "assistant"]:
-                converse_messages.append({"role": role, "content": [{"text": content}]})
+                # Handle content that may be a list (with image blocks) or a string
+                if isinstance(content, list):
+                    # Content is a list of blocks (text and/or images)
+                    converse_content = []
+                    for block in content:
+                        if isinstance(block, dict):
+                            block_type = block.get("type")
+                            if block_type == "text":
+                                # Text block
+                                converse_content.append({"text": block.get("text", "")})
+                            elif block_type == "image":
+                                # Image block - convert to Converse API format
+                                source = block.get("source", {})
+                                if source.get("type") == "base64":
+                                    media_type = source.get("media_type", "image/png")
+                                    # Extract format from media_type (e.g., "image/jpeg" -> "jpeg")
+                                    format_type = media_type.split("/")[-1] if "/" in media_type else "png"
+                                    image_data = source.get("data", "")
+                                    converse_content.append({
+                                        "image": {
+                                            "format": format_type,
+                                            "source": {"bytes": image_data}
+                                        }
+                                    })
+                                else:
+                                    logger.warning(f"Unsupported image source type in Bedrock Llama query: {source.get('type')}")
+                            else:
+                                logger.warning(f"Unknown content block type in Bedrock Llama query: {block_type}")
+                        else:
+                            # Fallback: convert to string
+                            converse_content.append({"text": str(block)})
+                    converse_messages.append({"role": role, "content": converse_content})
+                else:
+                    # Content is a string (text-only message)
+                    if not isinstance(content, str):
+                        content = str(content)
+                    converse_messages.append({"role": role, "content": [{"text": content}]})
 
         inference_config = {}
         if self.kwargs.get("max_tokens") is not None:
