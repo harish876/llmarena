@@ -136,7 +136,10 @@ if __name__ == "__main__":
     parser.add_argument("--runs-per-problem", type=int, default=4,
                         help="Expected number of runs per problem (default: 4)")
     parser.add_argument("--models-json", type=str, default=None,
-                        help="Path to JSON file containing list of model config paths to include (e.g., ['openrouter/gpt-5', 'bedrock/claude-3-5-sonnet'])")
+                        help="Path to JSON file containing list of model config paths to include, or dict with overrides. "
+                             "Formats: 1) List: ['openrouter/gpt-5', 'bedrock/claude-3-5-sonnet'], "
+                             "2) Dict with overrides: {'openrouter/claude-4-opus': {'human_readable_id': 'Claude 4 Opus (OpenRouter)'}, ...}, "
+                             "3) Dict with models and overrides: {'models': [...], 'overrides': {'path': {'human_readable_id': '...'}}}")
 
     args = parser.parse_args()
 
@@ -149,45 +152,74 @@ if __name__ == "__main__":
     if args.compute_variance:
         args.only_intersection = True
     
-    all_existing_configs = get_intersection_configs(args.comps, args.output_folder,
-                                                    args.configs_folder, args.competition_config_folder, 
-                                                    intersection=args.only_intersection)
-    
-    # Filter to only include models from JSON file if provided
+    # Parse models JSON if provided to get model filter and human_readable_id overrides
+    model_filter = None
+    human_readable_id_overrides = None
     if args.models_json:
         with open(args.models_json, "r") as f:
-            model_list = json.load(f)
+            models_data = json.load(f)
         
-        if not isinstance(model_list, list):
-            raise ValueError(f"JSON file must contain a list of model config paths, got {type(model_list)}")
-        
-        # Normalize model paths (remove .yaml extension if present, handle both formats)
-        normalized_model_list = []
-        for model in model_list:
-            if model.endswith(".yaml"):
-                model = model[:-5]  # Remove .yaml extension
-            normalized_model_list.append(model)
-        
-        # Filter all_existing_configs to only include models in the list
-        filtered_configs = {}
-        for config_path in all_existing_configs:
-            # Check if config_path is in the list (exact match or normalized)
-            if config_path in normalized_model_list:
-                filtered_configs[config_path] = all_existing_configs[config_path]
+        if isinstance(models_data, list):
+            # Simple list format: just filter models
+            normalized_model_list = []
+            for model in models_data:
+                if model.endswith(".yaml"):
+                    model = model[:-5]  # Remove .yaml extension
+                normalized_model_list.append(model)
+            model_filter = set(normalized_model_list)
+        elif isinstance(models_data, dict):
+            # Dict format: can specify models and overrides
+            # Format 1: {"models": [...], "overrides": {"path": {"human_readable_id": "..."}}}
+            # Format 2: {"path1": {"human_readable_id": "..."}, "path2": {}}
+            if "models" in models_data:
+                # Format 1
+                model_list = models_data["models"]
+                normalized_model_list = []
+                for model in model_list:
+                    if model.endswith(".yaml"):
+                        model = model[:-5]
+                    normalized_model_list.append(model)
+                model_filter = set(normalized_model_list)
+                # Extract overrides
+                if "overrides" in models_data:
+                    human_readable_id_overrides = {}
+                    for config_path, override_dict in models_data["overrides"].items():
+                        # Remove .yaml extension if present
+                        if config_path.endswith(".yaml"):
+                            config_path = config_path[:-5]
+                        if "human_readable_id" in override_dict:
+                            human_readable_id_overrides[config_path] = override_dict["human_readable_id"]
             else:
-                # Also check with .yaml extension
-                if f"{config_path}.yaml" in model_list:
-                    filtered_configs[config_path] = all_existing_configs[config_path]
-        
-        # Warn about models in JSON that don't exist
-        missing_models = set(normalized_model_list) - set(filtered_configs.keys())
+                # Format 2: keys are model paths, values can contain human_readable_id
+                normalized_model_list = []
+                human_readable_id_overrides = {}
+                for config_path, override_dict in models_data.items():
+                    # Remove .yaml extension if present
+                    if config_path.endswith(".yaml"):
+                        config_path = config_path[:-5]
+                    normalized_model_list.append(config_path)
+                    if isinstance(override_dict, dict) and "human_readable_id" in override_dict:
+                        human_readable_id_overrides[config_path] = override_dict["human_readable_id"]
+                model_filter = set(normalized_model_list)
+                if not human_readable_id_overrides:
+                    human_readable_id_overrides = None
+        else:
+            raise ValueError(f"JSON file must contain a list or dict, got {type(models_data)}")
+    
+    all_existing_configs = get_intersection_configs(args.comps, args.output_folder,
+                                                    args.configs_folder, args.competition_config_folder, 
+                                                    intersection=args.only_intersection,
+                                                    model_filter=model_filter,
+                                                    human_readable_id_overrides=human_readable_id_overrides)
+    
+    # Warn about models in JSON that don't exist (only if we filtered)
+    if model_filter is not None:
+        missing_models = model_filter - set(all_existing_configs.keys())
         if missing_models:
             print(f"Warning: Models in JSON file not found in competitions: {missing_models}", file=sys.stderr)
-        
-        all_existing_configs = filtered_configs
-        
-        if not all_existing_configs:
-            raise ValueError(f"No models from JSON file found in competitions. Check that model paths are correct and models have been run on the specified competitions.")
+    
+    if not all_existing_configs:
+        raise ValueError(f"No models from JSON file found in competitions. Check that model paths are correct and models have been run on the specified competitions.")
     
     # Optionally exclude configs by substring match on YAML filename (basename without path)
     if args.exclude_models:

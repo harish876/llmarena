@@ -43,6 +43,7 @@ MathArena (NeurIPS D&B '25) is a platform for evaluation of LLMs on latest math 
   - [Creating a Leaderboard](#creating-a-leaderboard)
   - [Curation](#curation)
   - [Extraction](#extraction)
+  - [Listing Models](#listing-models)
 - [Citation](#-citation)
 
 ---
@@ -328,6 +329,40 @@ To create a table containing results per category (Combinatorics, Number Theory,
 ```bash
 uv run python scripts/extraction/type_scoring.py --comps aime/aime_2025  hmmt/hmmt_feb_2025
 ```
+
+### Listing Models
+To list all models that have been run on a competition, use:
+```bash
+uv run python scripts/list_models.py --comp path/to/competition
+```
+
+**Arguments:**
+- `--comp` (required): Competition name (e.g., `aime/aime_2025` or `mmmu/mmmu_finance_merged`)
+- `--output-dir`: Directory containing competition outputs (default: `outputs`)
+- `--api`: Filter by specific API provider (e.g., `bedrock`, `openrouter`)
+- `--format`: Output format - `pretty` (default), `list`, or `csv`
+- `--output-json`: Path to output JSON file (default: `model_list.json` in competition directory)
+- `--no-json`: Do not generate JSON file
+
+**Examples:**
+```bash
+# List all models for a competition in pretty format
+uv run python scripts/list_models.py --comp aime/aime_2025
+
+# List only OpenRouter models
+uv run python scripts/list_models.py --comp aime/aime_2025 --api openrouter
+
+# Output as a simple list (one model per line)
+uv run python scripts/list_models.py --comp aime/aime_2025 --format list
+
+# Output as CSV
+uv run python scripts/list_models.py --comp aime/aime_2025 --format csv
+
+# Save to a custom JSON file
+uv run python scripts/list_models.py --comp aime/aime_2025 --output-json my_models.json
+```
+
+The script scans the competition output directory and lists all models that have result files (`.json` files) for that competition. By default, it also generates a `model_list.json` file in the competition directory containing a list of model paths in the format `api/model` (e.g., `["openrouter/gpt-4o", "bedrock/claude-3-5-sonnet"]`).
 
 ---
 ## 📚 Citation

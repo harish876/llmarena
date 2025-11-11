@@ -1,0 +1,17 @@
+[
+    "bedrock/claude-3-7-sonnet",
+    "bedrock/claude-4-opus-think",
+    "bedrock/llama4-maverick",
+    "bedrock/llama4-scout",
+    "openrouter/deepseek_r1",
+    "openrouter/deepseek_v31_terminus",
+    "openrouter/gemini-pro-2.5",
+    "openrouter/gpt-5",
+    "openrouter/gpt-5-mini",
+    "openrouter/grok-3-mini",
+    "openrouter/grok-4",
+    "openrouter/grok-4-fast-reasoning",
+    "openrouter/minimax_m2",
+    "openrouter/o4-mini",
+    "openrouter/oss-120b"
+  ]

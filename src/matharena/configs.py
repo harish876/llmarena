@@ -91,6 +91,8 @@ def extract_existing_configs(
     root_dir_competition_configs,
     exclude_file_path=None,
     allow_non_existing_judgment=False,
+    model_filter=None,
+    human_readable_id_overrides=None,
 ):
     """Extracts existing configurations for a competition.
 
@@ -103,6 +105,9 @@ def extract_existing_configs(
             exclusion. Defaults to None.
         allow_non_existing_judgment (bool, optional): Whether to allow non-existing
             judgments. Defaults to False.
+        model_filter (set, optional): Set of config paths to include. If None, all configs are included.
+        human_readable_id_overrides (dict, optional): Dictionary mapping config_path to human_readable_id
+            to override the default human_readable_id from the config file.
 
     Returns:
         tuple: A tuple containing the filtered configurations and human-readable IDs.
@@ -117,6 +122,10 @@ def extract_existing_configs(
     configs = dict()
     human_readable_ids = dict()
     for config_path in all_configs:
+        # Apply model filter if provided
+        if model_filter is not None and config_path not in model_filter:
+            continue
+            
         if os.path.exists(os.path.join(root_dir, comp, config_path)):
             exists = True
             if not is_final_answer:
@@ -129,11 +138,16 @@ def extract_existing_configs(
                         break
             if exists:
                 configs[config_path] = all_configs[config_path]
-                human_readable_ids[config_path] = all_configs[config_path]["human_readable_id"]
+                # Apply human_readable_id override if provided
+                if human_readable_id_overrides is not None and config_path in human_readable_id_overrides:
+                    human_readable_ids[config_path] = human_readable_id_overrides[config_path]
+                else:
+                    human_readable_ids[config_path] = all_configs[config_path]["human_readable_id"]
 
     if len(set(human_readable_ids.values())) != len(human_readable_ids):
         # find for which config the human readable id is duplicated
         duplicated = set()
+        print(human_readable_ids)
         for k, v in human_readable_ids.items():
             if v in duplicated:
                 logger.error(f"Duplicate human readable id {v} found in {k}")

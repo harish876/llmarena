@@ -7,6 +7,7 @@ import json
 import os
 from loguru import logger
 import numpy as np
+import math
 from matplotlib import rcParams
 from human_score_data import human_scores
 from datetime import datetime
@@ -15,10 +16,12 @@ rcParams['pdf.fonttype'] = 42
 rcParams['ps.fonttype'] = 42
 rcParams['text.usetex'] = False
 
-def get_intersection_configs(comps, output_folder, configs_folder, competition_config_folder, intersection=True):
+def get_intersection_configs(comps, output_folder, configs_folder, competition_config_folder, intersection=True, model_filter=None, human_readable_id_overrides=None):
     configs = {
         comp: extract_existing_configs(comp, output_folder, configs_folder, 
-                                       competition_config_folder)[1]
+                                       competition_config_folder,
+                                       model_filter=model_filter,
+                                       human_readable_id_overrides=human_readable_id_overrides)[1]
         for comp in comps
     }
 
@@ -89,11 +92,62 @@ def get_human_scores(old_comps, new_comps):
     ]
     return old_scores, new_scores
 
+def compute_pass_at_k(correct_list, k):
+    """
+    Compute pass@k metric: probability that at least one of k sampled runs is correct.
+    
+    Formula: pass@k = 1 - C(N - c, k) / C(N, k)
+    where N is total runs and c is number of correct runs.
+    
+    Args:
+        correct_list: List of boolean values indicating correctness of each run
+        k: Number of runs to sample
+    
+    Returns:
+        float: pass@k score, or None if cannot compute
+    """
+    if not correct_list:
+        return None
+    
+    # Convert to booleans if needed (handle mixed types)
+    if any(isinstance(c, str) for c in correct_list):
+        return None
+    
+    N = len(correct_list)
+    correct_count = sum(correct_list)
+    incorrect_count = N - correct_count
+    
+    # If we have fewer than k runs, pass@k is 1 if any run is correct, else 0
+    if N < k:
+        return 1.0 if correct_count > 0 else 0.0
+    
+    # If all runs are correct, pass@k = 1
+    if correct_count == N:
+        return 1.0
+    
+    # If all runs are incorrect, pass@k = 0
+    if correct_count == 0:
+        return 0.0
+    
+    # If we can't sample k incorrect runs, pass@k = 1
+    if incorrect_count < k:
+        return 1.0
+    
+    # Standard pass@k formula: 1 - C(N - c, k) / C(N, k)
+    try:
+        combinations_incorrect = math.comb(incorrect_count, k)
+        combinations_total = math.comb(N, k)
+        return 1.0 - (combinations_incorrect / combinations_total)
+    except (ValueError, OverflowError):
+        # Fallback for edge cases
+        return None
+
 def get_scores(comps, output_folder, competition_config_folder, all_existing_configs, 
-                avg=True, check_complete=False, runs_per_problem=4):
+                avg=True, check_complete=False, runs_per_problem=4, compute_pass_at_4=False):
     scores = dict()
     costs = dict()
     complete_flags = dict()
+    pass_at_4_scores = dict() if compute_pass_at_4 else None
 
     for comp in comps:
         with open(f"{competition_config_folder}/{comp}.yaml", "r") as f:
@@ -103,6 +157,7 @@ def get_scores(comps, output_folder, competition_config_folder, all_existing_con
         for config_path in all_existing_configs:
             results = []
             costs_here = []
+            pass_at_4_results = [] if compute_pass_at_4 else None
             is_complete = True
             for i in range(1, n_problems + 1):
                 if not os.path.exists(f"{output_folder}/{comp}/{config_path}/{i}.json"):
@@ -121,25 +176,48 @@ def get_scores(comps, output_folder, competition_config_folder, all_existing_con
                 if avg:
                     results.extend(correct)
                     costs_here.extend([np.mean(costs_sample)])
+                    if compute_pass_at_4:
+                        pass_at_4 = compute_pass_at_k(correct, 4)
+                        if pass_at_4 is not None:
+                            pass_at_4_results.append(pass_at_4)
                 else:
                     results.append(correct)
                     costs_here.append(np.mean(costs_sample))
+                    if compute_pass_at_4:
+                        pass_at_4 = compute_pass_at_k(correct, 4)
+                        if pass_at_4_results is None:
+                            pass_at_4_results = []
+                        pass_at_4_results.append(pass_at_4 if pass_at_4 is not None else [])
             scores[config_path] = scores.get(config_path, dict())
             costs[config_path] = costs.get(config_path, dict())
+            if compute_pass_at_4:
+                pass_at_4_scores[config_path] = pass_at_4_scores.get(config_path, dict())
             if check_complete:
                 complete_flags[config_path] = complete_flags.get(config_path, dict())
                 complete_flags[config_path][comp] = is_complete
             if len(results) == 0:
                 scores[config_path][comp] = "N/A"
                 costs[config_path][comp] = "N/A"
+                if compute_pass_at_4:
+                    pass_at_4_scores[config_path][comp] = "N/A"
             elif avg:
                 scores[config_path][comp] = sum(results) / len(results)
                 costs[config_path][comp] = sum(costs_here)
+                if compute_pass_at_4 and pass_at_4_results:
+                    pass_at_4_scores[config_path][comp] = np.mean(pass_at_4_results)
+                elif compute_pass_at_4:
+                    pass_at_4_scores[config_path][comp] = "N/A"
             else:
                 scores[config_path][comp] = results
                 costs[config_path][comp] = costs_here
+                if compute_pass_at_4:
+                    pass_at_4_scores[config_path][comp] = pass_at_4_results if pass_at_4_results else []
     if check_complete:
+        if compute_pass_at_4:
+            return scores, costs, complete_flags, pass_at_4_scores
         return scores, costs, complete_flags
+    if compute_pass_at_4:
+        return scores, costs, pass_at_4_scores
     return scores, costs
 
 if __name__ == "__main__":

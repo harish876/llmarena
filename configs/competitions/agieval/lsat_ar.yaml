@@ -1,0 +1,9 @@
+competition: lsat_ar
+dataset_path: data/agieval_lsat_ar
+date: "2024-01-01"
+instruction: "You are given a multiple choice question from the AGIEval LSAT Analytical Reasoning benchmark.\nReason step by step, and put your final answer within \\boxed{{}}, referring to the given multiple choice options (A, B, C, D, or E),\nof which exactly one is correct.\nAn example of a valid answer is \\boxed{{A}}. Do not put your\nanswer text in boxed, for example \\boxed{{42}} is not a valid answer; instead find that\nvalue in the options list and report the corresponding letter.\n"
+n_problems: 230 
+options: ["A", "B", "C", "D", "E", "None"]
+strict_parsing: false
+final_answer: true
+

@@ -10,7 +10,7 @@ instruction: "You are given a multiple choice question from the MMMU (Multi-disc
     \ of which exactly one is correct.\nAn example of a valid answer is \\boxed{{A}}. Do not put your
     \ answer text in boxed, for example \\boxed{{42}} is not a valid answer; instead find that
     \ value in the options list and report the corresponding letter.\n"
-n_problems: 30
+n_problems: 22
 options: ["A", "B", "C", "D", "E", "F", "None"]
 strict_parsing: false
 final_answer: true

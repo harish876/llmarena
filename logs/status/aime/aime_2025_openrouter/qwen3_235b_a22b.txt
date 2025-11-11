@@ -1,15 +1,15 @@
-Status as of 2025-10-31 20:19:22
+Status as of 2025-11-01 05:25:08
 There are 30 problems; doing 4 runs per problem.
 
 Problem   1: OOOO (0 left)
-Problem   2: O--- (3 left)
-Problem   3: OO-- (2 left)
-Problem   4: OOO- (1 left)
-Problem   5: O--- (3 left)
-Problem   6: ---- (4 left)
+Problem   2: OOO- (1 left)
+Problem   3: OOOO (0 left)
+Problem   4: OOOO (0 left)
+Problem   5: OOOO (0 left)
+Problem   6: OOOO (0 left)
 Problem   7: ---- (4 left)
-Problem   8: ---- (4 left)
-Problem   9: ---- (4 left)
+Problem   8: OOOO (0 left)
+Problem   9: OOX- (1 left)
 Problem  10: ---- (4 left)
 Problem  11: ---- (4 left)
 Problem  12: ---- (4 left)
